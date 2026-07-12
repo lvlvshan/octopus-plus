@@ -485,6 +485,7 @@ func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx cont
 			ModelName: r.modelName,
 			Passed:    r.result.Passed,
 			Error:     r.result.Msg,
+			LatencyMs: r.result.LatencyMs,
 		})
 
 		persistValidationRecord(r.channelID, r.modelName, r.result, timeout)

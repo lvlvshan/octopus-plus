@@ -354,7 +354,8 @@
             "submitting": "Creating..."
         },
         "card": {
-            "empty": "No rules"
+            "empty": "No rules",
+            "latencyTitle": "First-token validation latency"
         },
         "detail": {
             "actions": {

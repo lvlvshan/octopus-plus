@@ -74,6 +74,7 @@ type ModelValidationResult struct {
 	ModelName string `json:"model_name"`
 	Passed    bool   `json:"passed"`
 	Error     string `json:"error,omitempty"`
+	LatencyMs int    `json:"latency_ms,omitempty"`
 }
 
 // AddModelsWithValidationResponse 验证响应

@@ -345,16 +345,31 @@ export function GroupEditor({
                 onSuccess: (resp) => {
                     const results = resp.results ?? [];
                     setSelectedMembers((prev) => {
+                        const passedByKey = new Map<string, number | undefined>();
+                        results.forEach((r) => {
+                            if (r.passed) passedByKey.set(`${r.channel_id}::${r.model_name}`, r.latency_ms);
+                        });
+                        if (passedByKey.size === 0) return prev;
+
+                        let mutated = false;
+                        const next = prev.map((m) => {
+                            const lat = passedByKey.get(m.id);
+                            if (lat === undefined) return m;
+                            mutated = true;
+                            return typeof lat === 'number' ? { ...m, latency_ms: lat } : m;
+                        });
+
                         const existing = new Set(prev.map((m) => m.id));
                         const toAdd: SelectedMember[] = [];
-                        results.forEach((r) => {
-                            const key = `${r.channel_id}::${r.model_name}`;
-                            if (r.passed && !existing.has(key)) {
+                        passedByKey.forEach((lat, key) => {
+                            if (!existing.has(key)) {
                                 const ch = channels.find((c) => memberKey(c) === key);
-                                if (ch) toAdd.push({ ...ch, id: key, weight: 1 });
+                                if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
                             }
                         });
-                        return toAdd.length ? [...prev, ...toAdd] : prev;
+
+                        if (toAdd.length === 0) return mutated ? next : prev;
+                        return [...next, ...toAdd];
                     });
                     setFailedMap((prev) => {
                         const next = new Map(prev);

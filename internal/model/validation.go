@@ -15,8 +15,9 @@ const (
 // ValidationResult 单次模型验证的返回结果。
 // 该类型有意放在 model 包而非 helper 包，以打破 op↔helper 的导入循环。
 type ValidationResult struct {
-	Passed bool
-	Msg    string
+	Passed    bool
+	Msg       string
+	LatencyMs int // 实际请求耗时毫秒，仅 Passed=true 时有参考意义
 }
 
 // ModelValidation 记录每个 (channel, model) 的验证历史

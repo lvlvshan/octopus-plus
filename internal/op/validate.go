@@ -181,29 +181,31 @@ func ValidateModelOneShot(
 	// 走 axonhub executor：4xx/5xx 会作为 *httpclient.Error 返回（HTTP request failed: ...），
 	// 但仍计入"已收到响应"。只有 ctx 截止才视为失败。
 	exec := httpclient.NewHttpClientWithClient(httpClient)
+	start := time.Now()
 	resp, err := exec.Do(validateCtx, upstreamReq)
+	latencyMs := int(time.Since(start) / time.Millisecond)
 	if err != nil {
 		// 区分 context 截止（first-token timeout）和其他错误
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(validateCtx.Err(), context.DeadlineExceeded) {
-			return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("first_token_timeout (%ds)", timeoutSeconds)}
+			return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("first_token_timeout (%ds)", timeoutSeconds), LatencyMs: latencyMs}
 		}
 		// httpclient 4xx/5xx 会以 Error 形式返回——视为"上游可达但拒绝"
 		var httpErr *httpclient.Error
 		if errors.As(err, &httpErr) {
-			return model.ValidationResult{Passed: true, Msg: fmt.Sprintf("reachable (status %d)", httpErr.StatusCode)}
+			return model.ValidationResult{Passed: true, Msg: fmt.Sprintf("reachable (status %d)", httpErr.StatusCode), LatencyMs: latencyMs}
 		}
-		return model.ValidationResult{Passed: false, Msg: err.Error()}
+		return model.ValidationResult{Passed: false, Msg: err.Error(), LatencyMs: latencyMs}
 	}
 
 	if resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return model.ValidationResult{Passed: true}
+		return model.ValidationResult{Passed: true, LatencyMs: latencyMs}
 	}
 
 	statusCode := 0
 	if resp != nil {
 		statusCode = resp.StatusCode
 	}
-	return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("upstream status %d", statusCode)}
+	return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("upstream status %d", statusCode), LatencyMs: latencyMs}
 }
 
 func newOutbound(channelType llm.APIFormat, baseURL, key string) (transformer.Outbound, error) {

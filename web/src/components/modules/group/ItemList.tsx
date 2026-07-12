@@ -20,6 +20,7 @@ export interface SelectedMember extends LLMChannel {
     id: string;
     item_id?: number;
     weight?: number;
+    latency_ms?: number;
 }
 
 function reorderList<T>(list: T[], startIndex: number, endIndex: number): T[] {
@@ -108,15 +109,25 @@ function MemberItem({
                 </span>
 
                 <div className="flex flex-col min-w-0 flex-1">
-                    <Tooltip side="top" sideOffset={10} align="start">
-                        <TooltipTrigger className={cn(
-                            'text-sm font-medium truncate leading-tight',
-                            isDisabled && 'text-muted-foreground'
-                        )}>
-                            {member.name}
-                        </TooltipTrigger>
-                        <TooltipContent key={member.name}>{member.name}</TooltipContent>
-                    </Tooltip>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <Tooltip side="top" sideOffset={10} align="start">
+                            <TooltipTrigger className={cn(
+                                'text-sm font-medium truncate leading-tight',
+                                isDisabled && 'text-muted-foreground'
+                            )}>
+                                {member.name}
+                            </TooltipTrigger>
+                            <TooltipContent key={member.name}>{member.name}</TooltipContent>
+                        </Tooltip>
+                        {typeof member.latency_ms === 'number' && (
+                            <span
+                                className="shrink-0 text-[10px] font-medium tabular-nums px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                title={t('card.latencyTitle')}
+                            >
+                                {member.latency_ms} ms
+                            </span>
+                        )}
+                    </div>
                     <span className="text-[10px] text-muted-foreground truncate leading-tight">{member.channel_name}</span>
                 </div>
 

@@ -354,7 +354,8 @@
             "submitting": "创建中..."
         },
         "card": {
-            "empty": "暂无规则"
+            "empty": "暂无规则",
+            "latencyTitle": "首 Token 验证耗时"
         },
         "detail": {
             "actions": {
