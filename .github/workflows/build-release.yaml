@@ -78,8 +78,9 @@ jobs:
 
       - name: Move frontend output
         run: |
-          mkdir -p static
-          mv web/out static/
+          rm -rf static/out
+          mkdir -p static/out
+          cp -r web/out/* static/out/
 
       - name: Update price
         run: python3 scripts/updatePrice.py
