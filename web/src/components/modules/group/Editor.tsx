@@ -355,17 +355,18 @@ export function GroupEditor({
                         const next = prev.map((m) => {
                             const lat = passedByKey.get(m.id);
                             if (lat === undefined) return m;
+                            if (typeof lat !== 'number') return m;
                             mutated = true;
-                            return typeof lat === 'number' ? { ...m, latency_ms: lat } : m;
+                            return { ...m, latency_ms: lat };
                         });
 
                         const existing = new Set(prev.map((m) => m.id));
                         const toAdd: SelectedMember[] = [];
                         passedByKey.forEach((lat, key) => {
-                            if (!existing.has(key)) {
-                                const ch = channels.find((c) => memberKey(c) === key);
-                                if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
-                            }
+                            if (typeof lat !== 'number') return;
+                            if (existing.has(key)) return;
+                            const ch = channels.find((c) => memberKey(c) === key);
+                            if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
                         });
 
                         if (toAdd.length === 0) return mutated ? next : prev;

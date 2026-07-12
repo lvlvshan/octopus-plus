@@ -58,6 +58,7 @@ function MemberItem({
     layoutScope?: string;
     dnd: MemberItemDnd;
 }) {
+    const t = useTranslations('group');
     const { Avatar: ModelAvatar } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
