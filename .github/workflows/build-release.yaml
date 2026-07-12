@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go_arch:
+        include:
           - os: linux
             arch: amd64
             go_arch: amd64
@@ -98,8 +98,9 @@ jobs:
 
       - name: Build binary
         env:
-          GOOS: ${{ matrix.go_arch.os }}
-          GOARCH: ${{ matrix.go_arch.go_arch }}
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.go_arch }}
+          TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
