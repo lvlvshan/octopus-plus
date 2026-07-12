@@ -49,6 +49,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
             <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
                 <GroupEditor
                     key={`edit-group-${group.id}`}
+                    groupId={group.id}
                     initial={{
                         name: group.name,
                         match_regex: group.match_regex ?? '',

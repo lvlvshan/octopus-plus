@@ -380,7 +380,8 @@
             "autoAdd": "自动添加",
             "clear": "清空",
             "selectChannel": "渠道",
-            "selectModel": "模型"
+            "selectModel": "模型",
+            "testFailed": "测试失败"
         },
         "mode": {
             "roundRobin": "轮询",

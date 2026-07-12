@@ -380,7 +380,8 @@
             "autoAdd": "Auto Add",
             "clear": "Clear",
             "selectChannel": "Channel",
-            "selectModel": "Model"
+            "selectModel": "Model",
+            "testFailed": "Test failed"
         },
         "mode": {
             "roundRobin": "Round Robin",

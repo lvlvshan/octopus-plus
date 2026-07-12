@@ -380,7 +380,8 @@
             "autoAdd": "自動新增",
             "clear": "清空",
             "selectChannel": "供應源",
-            "selectModel": "模型"
+            "selectModel": "模型",
+            "testFailed": "測試失敗"
         },
         "mode": {
             "roundRobin": "輪詢",

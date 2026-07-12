@@ -1,10 +1,13 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDownIcon, Loader2, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
+import {
+    useAddModelsWithValidation,
+} from '@/api/endpoints/group';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -35,12 +38,16 @@ function ModelPickerSection({
     onAdd,
     onAutoAdd,
     autoAddDisabled,
+    pendingKeys,
+    failedMap,
 }: {
     modelChannels: LLMChannel[];
     selectedMembers: SelectedMember[];
     onAdd: (channel: LLMChannel) => void;
     onAutoAdd: () => void;
     autoAddDisabled: boolean;
+    pendingKeys: Set<string>;
+    failedMap: Map<string, string>;
 }) {
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -133,32 +140,47 @@ function ModelPickerSection({
                                 <AccordionContent className="px-2 pt-2">
                                     <div className="flex flex-col gap-1.5">
                                         {channel.models.map((m) => {
-                                            const isSelected = selectedKeys.has(memberKey(m));
+                                            const key = memberKey(m);
+                                            const isSelected = selectedKeys.has(key);
+                                            const isPending = pendingKeys.has(key);
+                                            const failureMsg = failedMap.get(key);
                                             const { Avatar } = getModelIcon(m.name);
                                             return (
-                                                <button
-                                                    key={memberKey(m)}
-                                                    type="button"
-                                                    onClick={() => !isSelected && onAdd(m)}
-                                                    disabled={isSelected}
-                                                    className={cn(
-                                                        'w-full flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-2 text-left transition-colors',
-                                                        isSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted'
-                                                    )}
-                                                >
-                                                    <span className="flex items-center gap-2 min-w-0">
-                                                        <Avatar size={16} />
-                                                        <span className="text-sm font-medium truncate">{m.name}</span>
-                                                    </span>
-
-                                                    <span className="shrink-0 text-muted-foreground">
-                                                        {isSelected ? (
-                                                            <Check className="size-4 text-primary" />
-                                                        ) : (
-                                                            <Plus className="size-4" />
+                                                <div key={key} className="space-y-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !isSelected && !isPending && onAdd(m)}
+                                                        disabled={isSelected || isPending}
+                                                        className={cn(
+                                                            'w-full flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-2 text-left transition-colors',
+                                                            isSelected || isPending ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted'
                                                         )}
-                                                    </span>
-                                                </button>
+                                                    >
+                                                        <span className="flex items-center gap-2 min-w-0">
+                                                            <Avatar size={16} />
+                                                            <span className="text-sm font-medium truncate">{m.name}</span>
+                                                        </span>
+
+                                                        <span className="shrink-0 text-muted-foreground">
+                                                            {isPending ? (
+                                                                <Loader2 className="size-4 animate-spin" />
+                                                            ) : isSelected ? (
+                                                                <Check className="size-4 text-primary" />
+                                                            ) : (
+                                                                <Plus className="size-4" />
+                                                            )}
+                                                        </span>
+                                                    </button>
+                                                    {failureMsg && (
+                                                        <p
+                                                            className="pl-7 pr-1 text-xs text-destructive flex items-start gap-1"
+                                                            title={failureMsg}
+                                                        >
+                                                            <X className="size-3 shrink-0 mt-0.5" />
+                                                            <span className="line-clamp-2 break-all">{failureMsg}</span>
+                                                        </p>
+                                                    )}
+                                                </div>
                                             );
                                         })}
                                     </div>
@@ -239,6 +261,7 @@ export function GroupEditor({
     submitText,
     submittingText,
     isSubmitting,
+    groupId,
     onSubmit,
     onCancel,
 }: {
@@ -246,6 +269,7 @@ export function GroupEditor({
     submitText: string;
     submittingText: string;
     isSubmitting: boolean;
+    groupId?: number;
     onSubmit: (values: GroupEditorValues) => void;
     onCancel?: () => void;
 }) {
@@ -259,6 +283,9 @@ export function GroupEditor({
     const [sessionKeepTime, setSessionKeepTime] = useState<number>(initial?.session_keep_time ?? 0);
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+    const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
+    const [failedMap, setFailedMap] = useState<Map<string, string>>(new Map());
+    const validateMutation = useAddModelsWithValidation();
 
     const groupKey = normalizeKey(groupName);
     const regexKey = matchRegex.trim();
@@ -287,13 +314,80 @@ export function GroupEditor({
         return { matchedModelChannels: modelChannels.filter((mc) => matchesGroupName(mc.name, groupKey)), regexError: '' };
     }, [groupKey, regexKey, modelChannels]);
 
+    const validateAndCommit = useCallback((channels: LLMChannel[]) => {
+        if (channels.length === 0) return;
+        const keys = channels.map(memberKey);
+        setPendingKeys((prev) => {
+            const next = new Set(prev);
+            keys.forEach((k) => next.add(k));
+            return next;
+        });
+        setFailedMap((prev) => {
+            const next = new Map(prev);
+            keys.forEach((k) => next.delete(k));
+            return next;
+        });
+
+        const items = channels.map((m, idx) => ({
+            channel_id: m.channel_id,
+            model_name: m.name,
+            priority: idx + 1,
+            weight: 1,
+        }));
+
+        validateMutation.mutate(
+            {
+                group_id: groupId ?? 0,
+                items_to_validate: items,
+                validate_only: groupId === undefined,
+            },
+            {
+                onSuccess: (resp) => {
+                    const results = resp.results ?? [];
+                    setSelectedMembers((prev) => {
+                        const existing = new Set(prev.map((m) => m.id));
+                        const toAdd: SelectedMember[] = [];
+                        results.forEach((r) => {
+                            const key = `${r.channel_id}::${r.model_name}`;
+                            if (r.passed && !existing.has(key)) {
+                                const ch = channels.find((c) => memberKey(c) === key);
+                                if (ch) toAdd.push({ ...ch, id: key, weight: 1 });
+                            }
+                        });
+                        return toAdd.length ? [...prev, ...toAdd] : prev;
+                    });
+                    setFailedMap((prev) => {
+                        const next = new Map(prev);
+                        results.forEach((r) => {
+                            if (!r.passed) {
+                                next.set(`${r.channel_id}::${r.model_name}`, r.error || t('form.testFailed'));
+                            }
+                        });
+                        return next;
+                    });
+                },
+                onError: (error) => {
+                    keys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error.message)));
+                },
+                onSettled: () => {
+                    setPendingKeys((prev) => {
+                        const next = new Set(prev);
+                        keys.forEach((k) => next.delete(k));
+                        return next;
+                    });
+                },
+            },
+        );
+    }, [groupId, validateMutation, t]);
+
     const handleAddMember = useCallback((channel: LLMChannel) => {
         const key = memberKey(channel);
         setSelectedMembers((prev) => {
             if (prev.some((m) => m.id === key)) return prev;
             return [...prev, { ...channel, id: key, weight: 1 }];
         });
-    }, []);
+        validateAndCommit([channel]);
+    }, [validateAndCommit]);
 
     const autoAddDisabled = useMemo(() => {
         if ((!regexKey && !groupKey) || regexError || matchedModelChannels.length === 0) return true;
@@ -303,14 +397,18 @@ export function GroupEditor({
 
     const handleAutoAdd = useCallback(() => {
         if (matchedModelChannels.length === 0) return;
+        const existing = new Set(selectedMembers.map((m) => m.id));
+        const toAdd = matchedModelChannels.filter((mc) => !existing.has(memberKey(mc)));
+        if (toAdd.length === 0) return;
         setSelectedMembers((prev) => {
-            const existing = new Set(prev.map((m) => m.id));
-            const toAdd = matchedModelChannels
-                .filter((mc) => !existing.has(memberKey(mc)))
+            const ex = new Set(prev.map((m) => m.id));
+            const additions = toAdd
+                .filter((mc) => !ex.has(memberKey(mc)))
                 .map((mc) => ({ ...mc, id: memberKey(mc), weight: 1 }));
-            return toAdd.length ? [...prev, ...toAdd] : prev;
+            return additions.length ? [...prev, ...additions] : prev;
         });
-    }, [matchedModelChannels]);
+        validateAndCommit(toAdd);
+    }, [matchedModelChannels, selectedMembers, validateAndCommit]);
 
     const handleWeightChange = useCallback((id: string, weight: number) => {
         setSelectedMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
@@ -469,6 +567,8 @@ export function GroupEditor({
                                 onAdd={handleAddMember}
                                 onAutoAdd={handleAutoAdd}
                                 autoAddDisabled={autoAddDisabled}
+                                pendingKeys={pendingKeys}
+                                failedMap={failedMap}
                             />
                             <SortSection
                                 members={selectedMembers}

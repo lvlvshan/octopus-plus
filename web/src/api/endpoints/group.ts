@@ -180,6 +180,32 @@ export function useDeleteGroup() {
 }
 
 /**
+ * 单项验证结果
+ */
+export interface ModelValidationResult {
+    channel_id: number;
+    model_name: string;
+    passed: boolean;
+    error?: string;
+}
+
+/**
+ * 添加模型并验证请求
+ */
+export interface AddModelsWithValidationRequest {
+    group_id: number;
+    items_to_validate: GroupItemAddRequest[];
+    validate_only?: boolean;
+}
+
+/**
+ * 添加模型并验证响应
+ */
+export interface AddModelsWithValidationResponse {
+    results: ModelValidationResult[];
+}
+
+/**
  * 自动添加分组 item Hook
  *
  * 后端路由: POST /api/v1/group/auto-add-item
@@ -205,4 +231,38 @@ export function useDeleteGroup() {
 //         },
 //     });
 // }
+
+/**
+ * 添加模型并验证 Hook（首 Token 测试）
+ *
+ * 后端路由: POST /api/v1/group/add-models-with-validation
+ * Body: { group_id, items_to_validate: [{channel_id, model_name, priority, weight}], validate_only }
+ * Response: { results: [{channel_id, model_name, passed, error}] }
+ *
+ * 注意：此接口会在服务端做真实首 Token 测试，每项模型最多等待 model_validation_timeout 秒。
+ * 仅 `passed=true` 的项会被写入分组（当 validate_only=false）。
+ *
+ * @example
+ * const validate = useAddModelsWithValidation();
+ * validate.mutate({ group_id: 0, items_to_validate: [{channel_id: 1, model_name: 'gpt-4', priority: 1, weight: 1}] });
+ */
+export function useAddModelsWithValidation() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: AddModelsWithValidationRequest) => {
+            return apiClient.post<AddModelsWithValidationResponse>(
+                '/api/v1/group/add-models-with-validation',
+                data,
+            );
+        },
+        onSuccess: (data) => {
+            logger.log('模型验证完成:', data);
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('模型验证失败:', error);
+        },
+    });
+}
 
