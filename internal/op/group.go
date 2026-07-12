@@ -64,11 +64,48 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
+	// 服务端按 (channel_id, model_name) 兜底去重。GroupItemBatchAdd
+	// 已经带 OnConflict DoNothing + 去重，这里只在内存层过滤重复，
+	// 避免一次性 Insert 318 行时多行重复触发整事务 UNIQUE 失败。
+	seen := make(map[string]struct{}, len(group.Items))
+	uniq := make([]model.GroupIDAndLLMName, 0, len(group.Items))
+	for _, it := range group.Items {
+		if it.ChannelID == 0 || it.ModelName == "" {
+			continue
+		}
+		k := fmt.Sprintf("%d|%s", it.ChannelID, it.ModelName)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		uniq = append(uniq, model.GroupIDAndLLMName{
+			ChannelID: it.ChannelID,
+			ModelName: it.ModelName,
+		})
+	}
+	group.Items = nil
+
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
+
+	// 先把刚建的 group 放进缓存，后续 GroupItemBatchAdd 内部需要从缓存读取
 	groupCache.Set(group.ID, *group)
 	groupMap.Set(group.Name, *group)
+
+	if len(uniq) > 0 {
+		if err := GroupItemBatchAdd(group.ID, uniq, ctx); err != nil {
+			// item 插入失败不能把 group 一起回滚：用户更想看到已建好的分组
+			// 与一条明确的 item 错误，而不是整个分组丢失。日志记录即可。
+			log.Warnf("group %d created but failed to add some items: %v", group.ID, err)
+		}
+	}
+
+	// GroupItemBatchAdd 走的是内存里的 group 副本（无 items）后写库，
+	// 刷缓存时会让 items 进入 groupCache；这里再设一次确保响应里 items 非空。
+	if refreshed, ok := groupCache.Get(group.ID); ok {
+		*group = refreshed
+	}
 	return nil
 }
 

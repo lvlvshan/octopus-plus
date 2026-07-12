@@ -40,12 +40,19 @@ export function CreateDialogContent() {
                     submittingText={t('create.submitting')}
                     isSubmitting={createGroup.isPending}
                     onSubmit={({ name, match_regex, mode, first_token_time_out, session_keep_time, members }) => {
-                        const items: GroupItem[] = members.map((member, index) => ({
-                            channel_id: member.channel_id,
-                            model_name: member.name,
-                            priority: index + 1,
-                            weight: member.weight ?? 1,
-                        }));
+                        const seen = new Set<string>();
+                        const items: GroupItem[] = [];
+                        members.forEach((member, index) => {
+                            const key = `${member.channel_id}-${member.name}`;
+                            if (seen.has(key)) return;
+                            seen.add(key);
+                            items.push({
+                                channel_id: member.channel_id,
+                                model_name: member.name,
+                                priority: index + 1,
+                                weight: member.weight ?? 1,
+                            });
+                        });
 
                         createGroup.mutate(
                             { name, mode, match_regex: match_regex ?? '', first_token_time_out: first_token_time_out ?? 0, session_keep_time: session_keep_time ?? 0, items },
