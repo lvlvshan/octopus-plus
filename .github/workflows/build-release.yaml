@@ -89,6 +89,7 @@ jobs:
         env:
           GOOS: ${{ matrix.go_arch.os }}
           GOARCH: ${{ matrix.go_arch.go_arch }}
+          TARGET_ARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
           COMMIT_ID=$(git rev-parse --short HEAD)
@@ -100,16 +101,19 @@ jobs:
                    -s -w"
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
-          OUTPUT="octopus-${GOOS}-${matrix.arch}${EXT}"
+          OUTPUT="octopus-${GOOS}-${TARGET_ARCH}${EXT}"
           go build -ldflags="${LDFLAGS}" -tags=jsoniter -o "${OUTPUT}" ./
           echo "OUTPUT=${OUTPUT}" >> $GITHUB_ENV
           echo "EXT=${EXT}" >> $GITHUB_ENV
 
       - name: Generate checksum
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
         run: |
           EXT="${{ env.EXT }}"
           if [ -n "${EXT}" ]; then
-            mv "octopus-${matrix.os}-${matrix.arch}${EXT}" "octopus${EXT}"
+            mv "octopus-${TARGET_OS}-${TARGET_ARCH}${EXT}" "octopus${EXT}"
           fi
           md5sum octopus* > md5.txt
           cat md5.txt
