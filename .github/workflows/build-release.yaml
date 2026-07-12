@@ -92,6 +92,7 @@ jobs:
           # lets `go mod tidy` download the real module version from the
           # proxy during build.
           sed -i 's|^replace github.com/looplj/axonhub/llm => ../axonhub/llm.*|// removed for CI: requires local sibling repo|' go.mod
+          go mod tidy
 
       - name: Build binary
         env:
