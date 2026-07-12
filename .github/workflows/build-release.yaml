@@ -1,0 +1,276 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v1.0.0, latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go_arch:
+          - os: linux
+            arch: amd64
+            go_arch: amd64
+          - os: linux
+            arch: arm64
+            go_arch: arm64
+          - os: linux
+            arch: armv7
+            go_arch: arm
+          - os: linux
+            arch: 386
+            go_arch: 386
+          - os: windows
+            arch: amd64
+            go_arch: amd64
+          - os: windows
+            arch: 386
+            go_arch: 386
+          - os: darwin
+            arch: arm64
+            go_arch: arm64
+          - os: darwin
+            arch: amd64
+            go_arch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build frontend
+        run: |
+          cd web
+          pnpm install --frozen-lockfile
+          pnpm run build
+        env:
+          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+
+      - name: Move frontend output
+        run: |
+          mkdir -p static
+          mv web/out static/
+
+      - name: Update price
+        run: python3 scripts/updatePrice.py
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.go_arch.os }}
+          GOARCH: ${{ matrix.go_arch.go_arch }}
+          CGO_ENABLED: 0
+        run: |
+          COMMIT_ID=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date -u '+%Y-%m-%d %T%z')
+          LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=dev' \
+                   -X 'github.com/bestruirui/octopus/internal/conf.BuildTime=${BUILD_TIME}' \
+                   -X 'github.com/bestruirui/octopus/internal/conf.Author=github-actions' \
+                   -X 'github.com/bestruirui/octopus/internal/conf.Commit=${COMMIT_ID}' \
+                   -s -w"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          OUTPUT="octopus-${GOOS}-${matrix.arch}${EXT}"
+          go build -ldflags="${LDFLAGS}" -tags=jsoniter -o "${OUTPUT}" ./
+          echo "OUTPUT=${OUTPUT}" >> $GITHUB_ENV
+          echo "EXT=${EXT}" >> $GITHUB_ENV
+
+      - name: Generate checksum
+        run: |
+          EXT="${{ env.EXT }}"
+          if [ -n "${EXT}" ]; then
+            mv "octopus-${matrix.os}-${matrix.arch}${EXT}" "octopus${EXT}"
+          fi
+          md5sum octopus* > md5.txt
+          cat md5.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: octopus-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            octopus${{ env.EXT }}
+            md5.txt
+          retention-days: 90
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums summary
+        id: checksums
+        run: |
+          echo '```' >> checksums.md
+          echo '| File | MD5 |' >> checksums.md
+          echo '|------|-----|' >> checksums.md
+          for f in artifacts/octopus*; do
+            if [ -f "$f" ]; then
+              name=$(basename "$f")
+              if [ "$name" != "md5.txt" ]; then
+                md5=$(grep "$name" artifacts/md5.txt | awk '{print $1}')
+                echo "| \`$name\` | \`$md5\` |" >> checksums.md
+              fi
+            fi
+          done
+          echo '```' >> checksums.md
+          echo "BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "## Downloads" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_OUTPUT
+          echo "**Build time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Binaries" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          echo '| File | MD5 |' >> $GITHUB_OUTPUT
+          echo '|------|-----|' >> $GITHUB_OUTPUT
+          for f in artifacts/octopus*; do
+            name=$(basename "$f")
+            if [ "$name" != "md5.txt" ]; then
+              md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}')
+              echo "| \`$name\` | \`$md5\` |" >> $GITHUB_OUTPUT
+            fi
+          done
+          echo '```' >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## Checksums" >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          cat artifacts/md5.txt >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag: dev-${{ github.run_id }}
+          name: dev build #${{ github.run_number }}
+          body_path: ${{ github.env.BODY }}
+          draft: false
+          prerelease: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to GitHub Release
+        run: |
+          RELEASE_ID=${{ steps.create_release.outputs.id }}
+          for f in artifacts/octopus*; do
+            name=$(basename "$f")
+            if [ "$name" != "md5.txt" ]; then
+              echo "Uploading $name..."
+              curl -s -X POST \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${name}" \
+                --data-binary "@${f}" \
+                | jq -r '.browser_download_url // .message // empty'
+            fi
+          done
+          echo "All assets uploaded"
+
+  update-release-body:
+    name: Update Release Body
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update release with download links
+        run: |
+          RELEASE_ID=${{ needs.release.outputs.release_id }}
+          echo "Release ID: ${RELEASE_ID}"
+
+          # Get existing release data
+          RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}")
+
+          # Get all uploaded assets
+          ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets")
+
+          # Build markdown table of downloads
+          TABLE="## Downloads\n\n"
+          TABLE+="**Commit:** \`${{ github.sha }}\`  \n"
+          TABLE+="**Build:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')  \n\n"
+          TABLE+="### Binaries\n\n"
+          TABLE+="| OS | Arch | File | MD5 | Size |\n"
+          TABLE+="|---|------|------|-----|------|\n"
+
+          echo "$ASSETS" | jq -r '.[] | select(.name | contains("md5") | not) | "\(.name)"' | while read name; do
+            size=$(echo "$ASSETS" | jq -r ".[] | select(.name == \"$name\") | .size")
+            size_human=$(numfmt --to=iec $size 2>/dev/null || echo "${size}B")
+            ext="${name##*.}"
+            case "$ext" in
+              exe) os="Windows"; arch="${name%.exe}"; arch="${arch##*-}" ;;
+              *) os=$(echo "$name" | cut -d- -f2); arch=$(echo "$name" | cut -d- -f3) ;;
+            esac
+            md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}' || echo "n/a")
+            url=$(echo "$ASSETS" | jq -r ".[] | select(.name == \"$name\") | .browser_download_url")
+            TABLE+="| $os | $arch | [${name}](${url}) | \`${md5}\` | ${size_human} |\n"
+          done 2>/dev/null || true
+
+          TABLE+="\n### Checksums\n\n"
+          TABLE+="```\n"
+          TABLE+=$(cat artifacts/md5.txt 2>/dev/null || echo "# No checksums available")
+          TABLE+="\n```\n"
+
+          # Update release body
+          curl -s -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}" \
+            -d "$(jq -n --arg body "$TABLE" '{body: $body}')" \
+            | jq -r '.html_url // .message // "Updated"'
+
+          echo "Done!"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
