@@ -26,6 +26,9 @@ import (
 	"github.com/looplj/axonhub/llm/transformer"
 )
 
+// ErrFirstTokenTimeout is returned by writeStream when no token arrives within the configured timeout.
+var ErrFirstTokenTimeout = errors.New("first token timeout")
+
 // Handler 返回处理入站请求并转发到上游服务的 Gin handler。
 func Handler(inboundType llm.APIFormat) gin.HandlerFunc {
 	inAdapter := newInbound(inboundType)
@@ -145,7 +148,21 @@ func (r *relayRun) prepareAttempt() (*relayAttempt, error) {
 		return nil, nil
 	}
 
-	outAdapter, err := newOutbound(channel.Type, r.internalRequest, channel.GetBaseUrl(), usedKey.ChannelKey)
+	// 如果上次该 (channel, key, model) 调用失败，先执行探针确认
+	if balancer.GetNeedsValidation(channel.ID, usedKey.ID, item.ModelName) {
+		probeTimeout, _ := op.SettingGetInt(dbmodel.SettingKeyModelProbeTimeout)
+		if probeTimeout <= 0 {
+			probeTimeout = 15
+		}
+		ok := r.iter.DoProbe(channel.ID, usedKey.ID, channel.Name, channel, probeTimeout, r.c.Request.Context())
+		if !ok {
+			r.iter.Skip(channel.ID, usedKey.ID, channel.Name, "probe failed, skipping")
+			return nil, nil
+		}
+		log.Infof("probe succeeded for channel %s model %s, proceeding with real request", channel.Name, item.ModelName)
+	}
+
+	outAdapter, err := NewOutbound(channel.Type, r.internalRequest, channel.GetBaseUrl(), usedKey.ChannelKey)
 	if err != nil {
 		r.iter.Skip(channel.ID, usedKey.ID, channel.Name, err.Error())
 		return nil, nil
@@ -192,13 +209,20 @@ func (ra *relayAttempt) run() (bool, error) {
 		return false, nil
 	}
 
+	// Determine the correct attempt status
+	status := dbmodel.AttemptFailed
+	if errors.Is(fwdErr, ErrFirstTokenTimeout) {
+		status = dbmodel.AttemptFirstTokenTimeout
+	}
+
 	op.ChannelKeyUpdate(ra.usedKey)
-	span.End(dbmodel.AttemptFailed, fwdErr.Error())
+	span.End(status, fwdErr.Error())
 	op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
 		WaitTime:      span.Duration().Milliseconds(),
 		RequestFailed: 1,
 	})
 	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	balancer.SetNeedsValidation(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
 
 	return ra.c.Writer.Written(), fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr)
 }
@@ -396,7 +420,7 @@ func (ra *relayAttempt) writeStream(ctx context.Context, clientStream streams.St
 		case <-firstTokenC:
 			log.Warnf("first token timeout (%ds), switching channel", firstTokenTimeoutSec)
 			_ = clientStream.Close()
-			return fmt.Errorf("first token timeout (%ds)", firstTokenTimeoutSec)
+			return ErrFirstTokenTimeout
 		case r, ok := <-results:
 			if !ok {
 				log.Infof("stream end")

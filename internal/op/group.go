@@ -3,10 +3,14 @@ package op
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
+	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/bestruirui/octopus/internal/utils/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -395,4 +399,106 @@ func groupRefreshCacheByIDs(ids []int, ctx context.Context) error {
 		groupMap.Set(group.Name, group)
 	}
 	return nil
+}
+
+// persistValidationRecord upserts a validation result into the ModelValidation table.
+func persistValidationRecord(channelID int, modelName string, result helper.ValidationResult, timeout int) {
+	status := model.ValidationStatusPassed
+	if !result.Passed {
+		status = model.ValidationStatusFailed
+	}
+	record := model.ModelValidation{
+		ChannelID:       channelID,
+		ModelName:       modelName,
+		Status:          status,
+		LastTestTime:    time.Now(),
+		LastTestMsg:     result.Msg,
+		LastTestTimeout: timeout,
+	}
+	db.GetDB().Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "channel_id"}, {Name: "model_name"}},
+		DoUpdates: clause.AssignmentColumns([]string{"status", "last_test_time", "last_test_msg", "last_test_timeout", "test_count", "pass_count"}),
+	}).Create(&record)
+	db.GetDB().Model(&model.ModelValidation{}).
+		Where("channel_id = ? AND model_name = ?", channelID, modelName).
+		Updates(map[string]interface{}{
+			"test_count": gorm.Expr("test_count + 1"),
+			"pass_count": gorm.Expr("pass_count + ?", map[bool]int{true: 1, false: 0}[result.Passed]),
+		})
+	SetValidationStatus(channelID, modelName, status, result.Msg)
+}
+
+// AddModelsWithValidation validates each model then adds passed ones to the group.
+func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx context.Context) ([]model.ModelValidationResult, error) {
+	if _, ok := groupCache.Get(req.GroupID); !ok {
+		return nil, fmt.Errorf("group not found")
+	}
+
+	timeout, _ := SettingGetInt(model.SettingKeyModelValidationTimeout)
+	if timeout <= 0 {
+		timeout = 30
+	}
+
+	type validationResult struct {
+		channelID int
+		modelName string
+		result    helper.ValidationResult
+	}
+
+	const maxConcurrency = 5
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+	resultCh := make(chan validationResult, len(req.ItemsToValidate))
+
+	for _, item := range req.ItemsToValidate {
+		channel, err := ChannelGet(item.ChannelID, ctx)
+		if err != nil {
+			resultCh <- validationResult{item.ChannelID, item.ModelName, helper.ValidationResult{Passed: false, Msg: fmt.Sprintf("channel not found: %v", err)}}
+			continue
+		}
+
+		wg.Add(1)
+		go func(ch *model.Channel, mname string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res := helper.ValidateModelOneShot(ch, mname, timeout, ctx)
+			resultCh <- validationResult{ch.ID, mname, res}
+		}(channel, item.ModelName)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var results []model.ModelValidationResult
+	passedItems := make([]model.GroupIDAndLLMName, 0)
+
+	for r := range resultCh {
+		results = append(results, model.ModelValidationResult{
+			ChannelID: r.channelID,
+			ModelName: r.modelName,
+			Passed:    r.result.Passed,
+			Error:     r.result.Msg,
+		})
+
+		persistValidationRecord(r.channelID, r.modelName, r.result, timeout)
+
+		if r.result.Passed {
+			passedItems = append(passedItems, model.GroupIDAndLLMName{
+				ChannelID: r.channelID,
+				ModelName: r.modelName,
+			})
+		}
+	}
+
+	if !req.ValidateOnly && len(passedItems) > 0 {
+		if err := GroupItemBatchAdd(req.GroupID, passedItems, ctx); err != nil {
+			log.Warnf("failed to add validated items to group %d: %v", req.GroupID, err)
+		}
+	}
+
+	return results, nil
 }

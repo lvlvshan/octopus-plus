@@ -74,6 +74,11 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 		return
 	}
 
+	timeout, _ := op.SettingGetInt(model.SettingKeyModelValidationTimeout)
+	if timeout <= 0 {
+		timeout = 30
+	}
+
 	for _, group := range groups {
 		matchedModelNames := make([]string, 0, len(channelModelNames))
 
@@ -126,13 +131,22 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 		if len(matchedModelNames) > 0 {
 			items := make([]model.GroupIDAndLLMName, 0, len(matchedModelNames))
 			for _, modelName := range matchedModelNames {
+				// 同步验证：验证通过才加入分组
+				result := ValidateModelOneShot(channel, modelName, timeout, ctx)
+				if !result.Passed {
+					log.Warnf("auto-group validation failed: channel=%d group=%d model=%q reason=%s",
+						channel.ID, group.ID, modelName, result.Msg)
+					continue
+				}
 				items = append(items, model.GroupIDAndLLMName{
 					ChannelID: channel.ID,
 					ModelName: modelName,
 				})
 			}
-			if err := op.GroupItemBatchAdd(group.ID, items, ctx); err != nil {
-				log.Warnf("group item batch add failed (channel=%d group=%d): %v", channel.ID, group.ID, err)
+			if len(items) > 0 {
+				if err := op.GroupItemBatchAdd(group.ID, items, ctx); err != nil {
+					log.Warnf("group item batch add failed (channel=%d group=%d): %v", channel.ID, group.ID, err)
+				}
 			}
 		}
 	}

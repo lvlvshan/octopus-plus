@@ -1,9 +1,11 @@
 package balancer
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 )
 
@@ -164,4 +166,40 @@ func (s *AttemptSpan) End(status model.AttemptStatus, msg string) {
 // Duration 返回从开始到现在的耗时
 func (s *AttemptSpan) Duration() time.Duration {
 	return time.Since(s.startTime)
+}
+
+// DoProbe 对候选通道执行一次探针请求。
+// 探针不影响熔断器的 State/ConsecutiveFailures。
+func (it *Iterator) DoProbe(channelID, channelKeyID int, channelName string, channel *model.Channel, timeout int, ctx context.Context) bool {
+	modelName := it.candidates[it.index].ModelName
+	start := time.Now()
+
+	result := helper.ValidateModelOneShot(channel, modelName, timeout, ctx)
+	duration := int(time.Since(start).Milliseconds())
+
+	it.count++
+	status := model.AttemptSuccess
+	msg := "probe: ok"
+	if !result.Passed {
+		status = model.AttemptFailed
+		msg = "probe: " + result.Msg
+	}
+
+	it.attempts = append(it.attempts, model.ChannelAttempt{
+		ChannelID:    channelID,
+		ChannelKeyID: channelKeyID,
+		ChannelName:  channelName,
+		ModelName:    modelName,
+		AttemptNum:  it.count,
+		Status:       status,
+		Duration:    duration,
+		Sticky:      it.IsSticky(),
+		Msg:         msg,
+	})
+
+	if result.Passed {
+		ClearNeedsValidation(channelID, channelKeyID, modelName)
+		return true
+	}
+	return false
 }

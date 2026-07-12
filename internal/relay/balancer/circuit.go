@@ -25,6 +25,7 @@ type circuitEntry struct {
 	ConsecutiveFailures int64
 	LastFailureTime     time.Time
 	TripCount           int // 累计熔断触发次数（用于指数退避）
+	NeedsValidation     bool  // 下次调用前需要探针确认
 	mu                  sync.Mutex
 }
 
@@ -174,4 +175,39 @@ func RecordFailure(channelID, keyID int, modelName string) {
 		// 理论上不应该在 Open 状态下接收到失败记录（请求应被拒绝），
 		// 但为安全起见仍更新失败时间
 	}
+}
+
+// SetNeedsValidation marks a (channel, key, model) as needing validation before the next real request.
+func SetNeedsValidation(channelID, keyID int, modelName string) {
+	key := circuitKey(channelID, keyID, modelName)
+	entry := getOrCreateEntry(key)
+	entry.mu.Lock()
+	entry.NeedsValidation = true
+	entry.mu.Unlock()
+}
+
+// ClearNeedsValidation clears the needs-validation flag (called after probe succeeds).
+func ClearNeedsValidation(channelID, keyID int, modelName string) {
+	key := circuitKey(channelID, keyID, modelName)
+	v, ok := globalBreaker.Load(key)
+	if !ok {
+		return
+	}
+	entry := v.(*circuitEntry)
+	entry.mu.Lock()
+	entry.NeedsValidation = false
+	entry.mu.Unlock()
+}
+
+// GetNeedsValidation checks if a (channel, key, model) needs validation before the next request.
+func GetNeedsValidation(channelID, keyID int, modelName string) bool {
+	key := circuitKey(channelID, keyID, modelName)
+	v, ok := globalBreaker.Load(key)
+	if !ok {
+		return false
+	}
+	entry := v.(*circuitEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	return entry.NeedsValidation
 }

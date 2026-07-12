@@ -32,6 +32,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
+		).
+		AddRoute(
+			router.NewRoute("/add-models-with-validation", http.MethodPost).
+				Handle(addModelsWithValidation),
 		)
 	// AddRoute(
 	// 	router.NewRoute("/auto-add-item", http.MethodPost).
@@ -101,6 +105,20 @@ func deleteGroup(c *gin.Context) {
 		return
 	}
 	resp.Success(c, "group deleted successfully")
+}
+
+func addModelsWithValidation(c *gin.Context) {
+	var req model.AddModelsWithValidationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	results, err := op.AddModelsWithValidation(&req, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, model.AddModelsWithValidationResponse{Results: results})
 }
 
 // func autoAddGroupItem(c *gin.Context) {

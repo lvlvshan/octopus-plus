@@ -59,3 +59,23 @@ type GroupIDAndLLMName struct {
 	ChannelID int
 	ModelName string
 }
+
+// AddModelsWithValidationRequest 添加模型验证请求
+type AddModelsWithValidationRequest struct {
+	GroupID         int                      `json:"group_id" binding:"required"`
+	ItemsToValidate []GroupItemAddRequest    `json:"items_to_validate" binding:"required"`
+	ValidateOnly    bool                    `json:"validate_only,omitempty"`
+}
+
+// ModelValidationResult 单项验证结果
+type ModelValidationResult struct {
+	ChannelID int    `json:"channel_id"`
+	ModelName string `json:"model_name"`
+	Passed    bool   `json:"passed"`
+	Error     string `json:"error,omitempty"`
+}
+
+// AddModelsWithValidationResponse 验证响应
+type AddModelsWithValidationResponse struct {
+	Results []ModelValidationResult `json:"results"`
+}
