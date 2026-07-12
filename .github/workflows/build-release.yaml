@@ -260,13 +260,12 @@ jobs:
           RELEASE_ID=${{ needs.release.outputs.release_id }}
           echo "Release ID: ${RELEASE_ID}"
 
-          # Get existing release data
-          RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}")
-
           # Get all uploaded assets
           ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets")
+
+          # Build a list of asset names (excluding md5.txt)
+          NAMES=$(echo "$ASSETS" | jq -r '.[] | select(.name | contains("md5") | not) | .name')
 
           # Build markdown table of downloads
           TABLE="## Downloads\n\n"
@@ -276,27 +275,28 @@ jobs:
           TABLE+="| OS | Arch | File | MD5 | Size |\n"
           TABLE+="|---|------|------|-----|------|\n"
 
-          echo "$ASSETS" | jq -r '.[] | select(.name | contains("md5") | not) | "\(.name)"' | while read name; do
+          for name in $NAMES; do
             size=$(echo "$ASSETS" | jq -r ".[] | select(.name == \"$name\") | .size")
-            size_human=$(numfmt --to=iec $size 2>/dev/null || echo "${size}B")
+            size_human=$(numfmt --to=iec "$size" 2>/dev/null || echo "${size}B")
             ext="${name##*.}"
             case "$ext" in
               exe) os="Windows"; arch="${name%.exe}"; arch="${arch##*-}" ;;
               *) os=$(echo "$name" | cut -d- -f2); arch=$(echo "$name" | cut -d- -f3) ;;
             esac
-            md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}' || echo "n/a")
+            md5=$(grep -F "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}' || true)
+            md5="${md5:-n/a}"
             url=$(echo "$ASSETS" | jq -r ".[] | select(.name == \"$name\") | .browser_download_url")
             TABLE+="| $os | $arch | [${name}](${url}) | \`${md5}\` | ${size_human} |\n"
-          done 2>/dev/null || true
+          done
 
           TABLE+="\n### Checksums\n\n"
-          TABLE+="```\n"
+          TABLE+="\`\`\`\n"
           if [ -f "artifacts/md5.txt" ]; then
-            TABLE+=$(cat artifacts/md5.txt)
+            TABLE+="$(cat artifacts/md5.txt)"
           else
             TABLE+="# No checksums available"
           fi
-          TABLE+="\n```\n"
+          TABLE+="\n\`\`\`\n"
 
           # Update release body
           curl -s -X PATCH \
