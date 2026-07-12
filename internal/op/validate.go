@@ -14,7 +14,6 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
-	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/transformer"
 	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/doubao"
@@ -38,7 +37,6 @@ func validateHTTPClient(channel *model.Channel) (*http.Client, error) {
 	case !channel.Proxy:
 		proxyURLStr = ""
 	case channel.ChannelProxy == nil || strings.TrimSpace(*channel.ChannelProxy) == "":
-		// 使用 system proxy
 		u, err := SettingGetString(model.SettingKeyProxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("proxy url: %w", err)
@@ -121,6 +119,10 @@ func clonedDefaultTransport() (*http.Transport, error) {
 // ValidateModelOneShot 向指定 channel + model 发送一个极简非流式请求，
 // 在 timeoutSeconds 内收到任何响应（包括错误状态码）即视为通过。
 // 仅 first-token 超时（整体 deadline 截止）才算验证失败。
+//
+// 流程：llm.Request → outbound.TransformRequest → httpclient.Request →
+// axonhub executor.Do → http.Response。pipeline 引入 inbound/outbound 双向转换的复杂度
+// 在此处不需要，因此直接走 outbound + executor 的最短路径。
 func ValidateModelOneShot(
 	channel *model.Channel,
 	modelName string,
@@ -149,66 +151,60 @@ func ValidateModelOneShot(
 		return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("outbound transformer: %v", err)}
 	}
 
-	minimalReq := &llm.Request{
-		Model: modelName,
-		Messages: []llm.Message{
-			{Role: "user", Content: "hi"},
-		},
-		MaxTokens:   ptrInt(10),
-		Temperature: ptrFloat(0.7),
-	}
-
 	httpClient, err := validateHTTPClient(channel)
 	if err != nil {
 		return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("http client: %v", err)}
 	}
 
+	hi := "hi"
+	maxTokens := int64(10)
+	temperature := 0.7
+
+	minimalReq := &llm.Request{
+		Model: modelName,
+		Messages: []llm.Message{
+			{Role: "user", Content: llm.MessageContent{Content: &hi}},
+		},
+		MaxTokens:   &maxTokens,
+		Temperature: &temperature,
+	}
+
 	validateCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
+	// 用 outbound transformer 把 llm.Request 转换成 httpclient.Request
 	upstreamReq, err := outbound.TransformRequest(validateCtx, minimalReq)
 	if err != nil {
 		return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("transform request: %v", err)}
 	}
 
-	result, err := pipeline.NewFactory(httpclient.NewHttpClientWithClient(httpClient)).
-		Pipeline(
-			&minimalInbound{},
-			outbound,
-			pipeline.WithEmptyResponseDetection(),
-		).
-		Process(validateCtx, upstreamReq)
-
+	// 走 axonhub executor：4xx/5xx 会作为 *httpclient.Error 返回（HTTP request failed: ...），
+	// 但仍计入"已收到响应"。只有 ctx 截止才视为失败。
+	exec := httpclient.NewHttpClientWithClient(httpClient)
+	resp, err := exec.Do(validateCtx, upstreamReq)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		// 区分 context 截止（first-token timeout）和其他错误
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(validateCtx.Err(), context.DeadlineExceeded) {
 			return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("first_token_timeout (%ds)", timeoutSeconds)}
+		}
+		// httpclient 4xx/5xx 会以 Error 形式返回——视为"上游可达但拒绝"
+		var httpErr *httpclient.Error
+		if errors.As(err, &httpErr) {
+			return model.ValidationResult{Passed: true, Msg: fmt.Sprintf("reachable (status %d)", httpErr.StatusCode)}
 		}
 		return model.ValidationResult{Passed: false, Msg: err.Error()}
 	}
 
-	if result.Response != nil && result.Response.StatusCode >= 200 && result.Response.StatusCode < 300 {
+	if resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return model.ValidationResult{Passed: true}
 	}
 
 	statusCode := 0
-	if result.Response != nil {
-		statusCode = result.Response.StatusCode
+	if resp != nil {
+		statusCode = resp.StatusCode
 	}
 	return model.ValidationResult{Passed: false, Msg: fmt.Sprintf("upstream status %d", statusCode)}
 }
-
-type minimalInbound struct{}
-
-func (m *minimalInbound) TransformRequest(ctx context.Context, r *httpclient.Request) (*llm.Request, error) {
-	return &llm.Request{
-		Model:       "",
-		Messages:    []llm.Message{},
-		RequestType: llm.RequestTypeChat,
-	}, nil
-}
-
-func ptrInt(v int) *int             { return &v }
-func ptrFloat(v float64) *float64   { return &v }
 
 func newOutbound(channelType llm.APIFormat, baseURL, key string) (transformer.Outbound, error) {
 	switch channelType {
