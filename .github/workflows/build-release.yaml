@@ -127,8 +127,8 @@ jobs:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
-          md5sum "octopus-${TARGET_OS}-${TARGET_ARCH}${EXT}" > md5.txt
-          cat md5.txt
+          md5sum "octopus-${TARGET_OS}-${TARGET_ARCH}${EXT}" > "octopus-${TARGET_OS}-${TARGET_ARCH}.md5"
+          cat "octopus-${TARGET_OS}-${TARGET_ARCH}.md5"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -136,7 +136,7 @@ jobs:
           name: octopus-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             octopus-${{ matrix.os }}-${{ matrix.arch }}${{ env.EXT }}
-            md5.txt
+            octopus-${{ matrix.os }}-${{ matrix.arch }}.md5
           retention-days: 90
 
   release:
@@ -166,13 +166,11 @@ jobs:
             echo '```'
             echo '| File | MD5 |'
             echo '|------|-----|'
-            for f in artifacts/octopus*; do
-              if [ -f "$f" ]; then
-                name=$(basename "$f")
-                if [ "$name" != "md5.txt" ]; then
-                  md5=$(grep "$name" artifacts/md5.txt | awk '{print $1}')
-                  echo "| \`$name\` | \`$md5\` |"
-                fi
+            for md5_file in artifacts/octopus-*.md5; do
+              if [ -f "$md5_file" ]; then
+                name=$(basename "$md5_file" .md5)
+                md5=$(awk '{print $1}' "$md5_file")
+                echo "| \`${name}\` | \`${md5}\` |"
               fi
             done
             echo '```'
@@ -190,18 +188,18 @@ jobs:
             echo '```'
             echo '| File | MD5 |'
             echo '|------|-----|'
-            for f in artifacts/octopus*; do
-              name=$(basename "$f")
-              if [ "$name" != "md5.txt" ]; then
-                md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}')
-                echo "| \`$name\` | \`$md5\` |"
+            for md5_file in artifacts/octopus-*.md5; do
+              if [ -f "$md5_file" ]; then
+                name=$(basename "$md5_file" .md5)
+                md5=$(awk '{print $1}' "$md5_file")
+                echo "| \`${name}\` | \`${md5}\` |"
               fi
             done
             echo '```'
             echo ""
             echo "## Checksums"
             echo '```'
-            cat artifacts/md5.txt
+            cat artifacts/octopus-*.md5
             echo '```'
           } > release_body.md
 
@@ -260,8 +258,8 @@ jobs:
           ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets")
 
-          # Build a list of asset names (excluding md5.txt)
-          NAMES=$(echo "$ASSETS" | jq -r '.[] | select(.name | contains("md5") | not) | .name')
+          # Build a list of asset names (excluding md5 files)
+          NAMES=$(echo "$ASSETS" | jq -r '.[] | select(.name | endswith(".md5") | not) | .name')
 
           # Build markdown table of downloads
           TABLE="## Downloads\n\n"
@@ -279,16 +277,22 @@ jobs:
               exe) os="Windows"; arch="${name%.exe}"; arch="${arch##*-}" ;;
               *) os=$(echo "$name" | cut -d- -f2); arch=$(echo "$name" | cut -d- -f3) ;;
             esac
-            md5=$(grep -F "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}' || true)
-            md5="${md5:-n/a}"
+            # Strip the .exe extension (or nothing) to find the per-platform .md5 file
+            base="${name%.exe}"
+            md5_file="artifacts/${base}.md5"
+            if [ -f "$md5_file" ]; then
+              md5=$(awk '{print $1}' "$md5_file")
+            else
+              md5="n/a"
+            fi
             url=$(echo "$ASSETS" | jq -r ".[] | select(.name == \"$name\") | .browser_download_url")
             TABLE+="| $os | $arch | [${name}](${url}) | \`${md5}\` | ${size_human} |\n"
           done
 
           TABLE+="\n### Checksums\n\n"
           TABLE+="\`\`\`\n"
-          if [ -f "artifacts/md5.txt" ]; then
-            TABLE+="$(cat artifacts/md5.txt)"
+          if compgen -G "artifacts/octopus-*.md5" > /dev/null; then
+            TABLE+="$(cat artifacts/octopus-*.md5)"
           else
             TABLE+="# No checksums available"
           fi
