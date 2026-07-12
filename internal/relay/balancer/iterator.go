@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 // Iterator 统一的负载均衡迭代器
@@ -174,7 +174,7 @@ func (it *Iterator) DoProbe(channelID, channelKeyID int, channelName string, cha
 	modelName := it.candidates[it.index].ModelName
 	start := time.Now()
 
-	result := helper.ValidateModelOneShot(channel, modelName, timeout, ctx)
+	result := op.ValidateModelOneShot(channel, modelName, timeout, ctx)
 	duration := int(time.Since(start).Milliseconds())
 
 	it.count++

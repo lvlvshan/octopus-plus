@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -402,7 +401,7 @@ func groupRefreshCacheByIDs(ids []int, ctx context.Context) error {
 }
 
 // persistValidationRecord upserts a validation result into the ModelValidation table.
-func persistValidationRecord(channelID int, modelName string, result helper.ValidationResult, timeout int) {
+func persistValidationRecord(channelID int, modelName string, result model.ValidationResult, timeout int) {
 	status := model.ValidationStatusPassed
 	if !result.Passed {
 		status = model.ValidationStatusFailed
@@ -442,7 +441,7 @@ func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx cont
 	type validationResult struct {
 		channelID int
 		modelName string
-		result    helper.ValidationResult
+		result    model.ValidationResult
 	}
 
 	const maxConcurrency = 5
@@ -453,7 +452,7 @@ func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx cont
 	for _, item := range req.ItemsToValidate {
 		channel, err := ChannelGet(item.ChannelID, ctx)
 		if err != nil {
-			resultCh <- validationResult{item.ChannelID, item.ModelName, helper.ValidationResult{Passed: false, Msg: fmt.Sprintf("channel not found: %v", err)}}
+			resultCh <- validationResult{item.ChannelID, item.ModelName, model.ValidationResult{Passed: false, Msg: fmt.Sprintf("channel not found: %v", err)}}
 			continue
 		}
 
@@ -463,7 +462,7 @@ func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx cont
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			res := helper.ValidateModelOneShot(ch, mname, timeout, ctx)
+			res := ValidateModelOneShot(ch, mname, timeout, ctx)
 			resultCh <- validationResult{ch.ID, mname, res}
 		}(channel, item.ModelName)
 	}

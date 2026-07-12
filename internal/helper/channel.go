@@ -132,7 +132,7 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 			items := make([]model.GroupIDAndLLMName, 0, len(matchedModelNames))
 			for _, modelName := range matchedModelNames {
 				// 同步验证：验证通过才加入分组
-				result := ValidateModelOneShot(channel, modelName, timeout, ctx)
+				result := op.ValidateModelOneShot(channel, modelName, timeout, ctx)
 				if !result.Passed {
 					log.Warnf("auto-group validation failed: channel=%d group=%d model=%q reason=%s",
 						channel.ID, group.ID, modelName, result.Msg)

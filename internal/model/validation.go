@@ -12,6 +12,13 @@ const (
 	ValidationStatusFailed                      // 3: 上次验证失败
 )
 
+// ValidationResult 单次模型验证的返回结果。
+// 该类型有意放在 model 包而非 helper 包，以打破 op↔helper 的导入循环。
+type ValidationResult struct {
+	Passed bool
+	Msg    string
+}
+
 // ModelValidation 记录每个 (channel, model) 的验证历史
 type ModelValidation struct {
 	ChannelID       int             `json:"channel_id" gorm:"primaryKey"`
