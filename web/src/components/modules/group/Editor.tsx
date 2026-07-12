@@ -345,31 +345,27 @@ export function GroupEditor({
                 onSuccess: (resp) => {
                     const results = resp.results ?? [];
                     setSelectedMembers((prev) => {
-                        const passedByKey = new Map<string, number | undefined>();
+                        const passedByKey = new Map<string, number>();
                         results.forEach((r) => {
                             if (r.passed) passedByKey.set(`${r.channel_id}::${r.model_name}`, r.latency_ms);
                         });
                         if (passedByKey.size === 0) return prev;
 
-                        let mutated = false;
+                        const existing = new Set(prev.map((m) => m.id));
+                        const toAdd: SelectedMember[] = [];
                         const next = prev.map((m) => {
                             const lat = passedByKey.get(m.id);
                             if (lat === undefined) return m;
-                            if (typeof lat !== 'number') return m;
-                            mutated = true;
                             return { ...m, latency_ms: lat };
                         });
 
-                        const existing = new Set(prev.map((m) => m.id));
-                        const toAdd: SelectedMember[] = [];
                         passedByKey.forEach((lat, key) => {
-                            if (typeof lat !== 'number') return;
                             if (existing.has(key)) return;
                             const ch = channels.find((c) => memberKey(c) === key);
                             if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
                         });
 
-                        if (toAdd.length === 0) return mutated ? next : prev;
+                        if (toAdd.length === 0) return next;
                         return [...next, ...toAdd];
                     });
                     setFailedMap((prev) => {

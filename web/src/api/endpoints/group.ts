@@ -187,7 +187,7 @@ export interface ModelValidationResult {
     model_name: string;
     passed: boolean;
     error?: string;
-    latency_ms?: number;
+    latency_ms: number;
 }
 
 /**

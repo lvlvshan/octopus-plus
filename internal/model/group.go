@@ -74,7 +74,9 @@ type ModelValidationResult struct {
 	ModelName string `json:"model_name"`
 	Passed    bool   `json:"passed"`
 	Error     string `json:"error,omitempty"`
-	LatencyMs int    `json:"latency_ms,omitempty"`
+	// LatencyMs 始终序列化（无 omitempty），因为 < 1ms 截断为 0 的
+	// 快速请求也需要前端识别"已验证且耗时极短"，而不是当成字段缺失
+	LatencyMs int `json:"latency_ms"`
 }
 
 // AddModelsWithValidationResponse 验证响应
