@@ -87,12 +87,14 @@ jobs:
 
       - name: Fix go.mod for CI
         run: |
-          # Remove the local replace directive that points to ../axonhub/llm,
-          # because the sibling axonhub directory does not exist on CI. This
-          # lets `go mod tidy` download the real module version from the
-          # proxy during build.
-          sed -i 's|^replace github.com/looplj/axonhub/llm => ../axonhub/llm.*|// removed for CI: requires local sibling repo|' go.mod
-          go mod tidy
+          # The upstream build script expects a sibling ../axonhub/llm
+          # directory (see go.mod 'replace' directive). Clone it here so
+          # `go build` can resolve the local replace path.
+          if [ ! -d "../axonhub" ]; then
+            git clone --depth 1 https://github.com/looplj/axonhub.git ../axonhub
+          else
+            cd ../axonhub && git fetch --depth 1 origin master:master 2>/dev/null || true
+          fi
 
       - name: Build binary
         env:
