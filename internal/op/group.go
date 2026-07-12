@@ -437,9 +437,12 @@ func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx cont
 		return nil, fmt.Errorf("group not found")
 	}
 
-	timeout, _ := SettingGetInt(model.SettingKeyModelValidationTimeout)
+	timeout := req.TimeoutSeconds
 	if timeout <= 0 {
-		timeout = 30
+		timeout, _ = SettingGetInt(model.SettingKeyModelValidationTimeout)
+		if timeout <= 0 {
+			timeout = 30
+		}
 	}
 
 	type validationResult struct {

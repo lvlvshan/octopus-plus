@@ -340,6 +340,9 @@ export function GroupEditor({
                 group_id: groupId ?? 0,
                 items_to_validate: items,
                 validate_only: groupId === undefined,
+                // 把"首字超时"作为本次验证的超时上限：用户期望验证行为与运行时一致。
+                // 0 时后端回落到全局 SettingKeyModelValidationTimeout。
+                timeout_seconds: firstTokenTimeOut,
             },
             {
                 onSuccess: (resp) => {
@@ -347,7 +350,7 @@ export function GroupEditor({
                     setSelectedMembers((prev) => {
                         const passedByKey = new Map<string, number>();
                         results.forEach((r) => {
-                            if (r.passed) passedByKey.set(`${r.channel_id}::${r.model_name}`, r.latency_ms);
+                            if (r.passed) passedByKey.set(`${r.channel_id}-${r.model_name}`, r.latency_ms);
                         });
                         if (passedByKey.size === 0) return prev;
 
@@ -372,7 +375,7 @@ export function GroupEditor({
                         const next = new Map(prev);
                         results.forEach((r) => {
                             if (!r.passed) {
-                                next.set(`${r.channel_id}::${r.model_name}`, r.error || t('form.testFailed'));
+                                next.set(`${r.channel_id}-${r.model_name}`, r.error || t('form.testFailed'));
                             }
                         });
                         return next;
@@ -390,7 +393,7 @@ export function GroupEditor({
                 },
             },
         );
-    }, [groupId, validateMutation, t]);
+    }, [groupId, validateMutation, t, firstTokenTimeOut]);
 
     const handleAddMember = useCallback((channel: LLMChannel) => {
         const key = memberKey(channel);

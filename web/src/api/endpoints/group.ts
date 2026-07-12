@@ -197,6 +197,8 @@ export interface AddModelsWithValidationRequest {
     group_id: number;
     items_to_validate: GroupItemAddRequest[];
     validate_only?: boolean;
+    /** 单次验证的超时（秒），<=0 时后端使用全局默认。 */
+    timeout_seconds?: number;
 }
 
 /**

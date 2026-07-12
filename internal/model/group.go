@@ -62,10 +62,12 @@ type GroupIDAndLLMName struct {
 
 // AddModelsWithValidationRequest 添加模型验证请求
 // GroupID 可为 0，表示创建分组前的"仅校验"模式（不会写入任何 GroupItem）。
+// TimeoutSeconds 表示单次验证的超时（秒），<=0 时使用 SettingKeyModelValidationTimeout 全局值。
 type AddModelsWithValidationRequest struct {
 	GroupID         int                   `json:"group_id"`
 	ItemsToValidate []GroupItemAddRequest `json:"items_to_validate" binding:"required"`
 	ValidateOnly    bool                  `json:"validate_only,omitempty"`
+	TimeoutSeconds  int                   `json:"timeout_seconds,omitempty"`
 }
 
 // ModelValidationResult 单项验证结果
