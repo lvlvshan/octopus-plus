@@ -119,3 +119,6 @@ utils/         基础设施（logger、cache、shutdown、snowflake 等）
 - UI：Radix UI + Tailwind CSS v4 + LobeHub Icons
 - 路由：`/login`、`/`（仪表盘）、`/channel`、`/group`、`/price`、`/log`、`/setting`（多标签页）
 - 开发时 `NEXT_PUBLIC_API_BASE_URL` 指向后端，生产环境后端直接服务嵌入的静态文件
+
+
+每一次修改后推送到github

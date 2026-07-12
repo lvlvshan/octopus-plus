@@ -61,10 +61,11 @@ type GroupIDAndLLMName struct {
 }
 
 // AddModelsWithValidationRequest 添加模型验证请求
+// GroupID 可为 0，表示创建分组前的"仅校验"模式（不会写入任何 GroupItem）。
 type AddModelsWithValidationRequest struct {
-	GroupID         int                      `json:"group_id" binding:"required"`
-	ItemsToValidate []GroupItemAddRequest    `json:"items_to_validate" binding:"required"`
-	ValidateOnly    bool                    `json:"validate_only,omitempty"`
+	GroupID         int                   `json:"group_id"`
+	ItemsToValidate []GroupItemAddRequest `json:"items_to_validate" binding:"required"`
+	ValidateOnly    bool                  `json:"validate_only,omitempty"`
 }
 
 // ModelValidationResult 单项验证结果

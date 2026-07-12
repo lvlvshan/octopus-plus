@@ -428,8 +428,12 @@ func persistValidationRecord(channelID int, modelName string, result model.Valid
 }
 
 // AddModelsWithValidation validates each model then adds passed ones to the group.
+// When GroupID is 0 the request is treated as "validate only" regardless of ValidateOnly,
+// since there is no group yet to add items into.
 func AddModelsWithValidation(req *model.AddModelsWithValidationRequest, ctx context.Context) ([]model.ModelValidationResult, error) {
-	if _, ok := groupCache.Get(req.GroupID); !ok {
+	if req.GroupID == 0 {
+		req.ValidateOnly = true
+	} else if _, ok := groupCache.Get(req.GroupID); !ok {
 		return nil, fmt.Errorf("group not found")
 	}
 
