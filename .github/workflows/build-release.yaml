@@ -166,52 +166,58 @@ jobs:
       - name: Generate checksums summary
         id: checksums
         run: |
-          echo '```' >> checksums.md
-          echo '| File | MD5 |' >> checksums.md
-          echo '|------|-----|' >> checksums.md
-          for f in artifacts/octopus*; do
-            if [ -f "$f" ]; then
+          {
+            echo '```'
+            echo '| File | MD5 |'
+            echo '|------|-----|'
+            for f in artifacts/octopus*; do
+              if [ -f "$f" ]; then
+                name=$(basename "$f")
+                if [ "$name" != "md5.txt" ]; then
+                  md5=$(grep "$name" artifacts/md5.txt | awk '{print $1}')
+                  echo "| \`$name\` | \`$md5\` |"
+                fi
+              fi
+            done
+            echo '```'
+          } > checksums.md
+
+          # Build release body to a temp file; step output will hold the path.
+          {
+            echo "## Downloads"
+            echo ""
+            echo "**Commit:** \`${{ github.sha }}\`"
+            echo "**Build time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "### Binaries"
+            echo ""
+            echo '```'
+            echo '| File | MD5 |'
+            echo '|------|-----|'
+            for f in artifacts/octopus*; do
               name=$(basename "$f")
               if [ "$name" != "md5.txt" ]; then
-                md5=$(grep "$name" artifacts/md5.txt | awk '{print $1}')
-                echo "| \`$name\` | \`$md5\` |" >> checksums.md
+                md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}')
+                echo "| \`$name\` | \`$md5\` |"
               fi
-            fi
-          done
-          echo '```' >> checksums.md
-          echo "BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "## Downloads" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_OUTPUT
-          echo "**Build time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "### Binaries" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo '```' >> $GITHUB_OUTPUT
-          echo '| File | MD5 |' >> $GITHUB_OUTPUT
-          echo '|------|-----|' >> $GITHUB_OUTPUT
-          for f in artifacts/octopus*; do
-            name=$(basename "$f")
-            if [ "$name" != "md5.txt" ]; then
-              md5=$(grep "$name" artifacts/md5.txt 2>/dev/null | awk '{print $1}')
-              echo "| \`$name\` | \`$md5\` |" >> $GITHUB_OUTPUT
-            fi
-          done
-          echo '```' >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "## Checksums" >> $GITHUB_OUTPUT
-          echo '```' >> $GITHUB_OUTPUT
-          cat artifacts/md5.txt >> $GITHUB_OUTPUT
-          echo '```' >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+            done
+            echo '```'
+            echo ""
+            echo "## Checksums"
+            echo '```'
+            cat artifacts/md5.txt
+            echo '```'
+          } > release_body.md
+
+          echo "body_path=release_body.md" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag: dev-${{ github.run_id }}
+          tag_name: dev-${{ github.run_id }}
           name: dev build #${{ github.run_number }}
-          body_path: ${{ github.env.BODY }}
+          body_path: ${{ steps.checksums.outputs.body_path }}
           draft: false
           prerelease: true
           generate_release_notes: false
