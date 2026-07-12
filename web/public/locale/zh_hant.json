@@ -355,7 +355,9 @@
         },
         "card": {
             "empty": "暫無規則",
-            "latencyTitle": "首 Token 驗證耗時"
+            "latencyTitle": "首 Token 驗證耗時",
+            "validationFailed": "驗證失敗",
+            "validationFailedTitle": "首 Token 驗證未通過，建立分組時會自動跳過"
         },
         "detail": {
             "actions": {

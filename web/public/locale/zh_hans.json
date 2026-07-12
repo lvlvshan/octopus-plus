@@ -355,7 +355,9 @@
         },
         "card": {
             "empty": "暂无规则",
-            "latencyTitle": "首 Token 验证耗时"
+            "latencyTitle": "首 Token 验证耗时",
+            "validationFailed": "验证失败",
+            "validationFailedTitle": "首 Token 验证未通过，创建分组时会自动跳过"
         },
         "detail": {
             "actions": {

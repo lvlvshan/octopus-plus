@@ -355,7 +355,9 @@
         },
         "card": {
             "empty": "No rules",
-            "latencyTitle": "First-token validation latency"
+            "latencyTitle": "First-token validation latency",
+            "validationFailed": "Failed",
+            "validationFailedTitle": "First-token validation failed. This model will be skipped when creating the group."
         },
         "detail": {
             "actions": {

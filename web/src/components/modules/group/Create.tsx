@@ -43,6 +43,10 @@ export function CreateDialogContent() {
                         const seen = new Set<string>();
                         const items: GroupItem[] = [];
                         members.forEach((member, index) => {
+                            // 验证未通过的模型绝不能进入分组：
+                            // 用户在 UI 上可能漏掉红色"失败"徽标，
+                            // 服务端 GroupCreate 也不会过滤，这里做最后兜底。
+                            if (member.validation_failed) return;
                             const key = `${member.channel_id}-${member.name}`;
                             if (seen.has(key)) return;
                             seen.add(key);

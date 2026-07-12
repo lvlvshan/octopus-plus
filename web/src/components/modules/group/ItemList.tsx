@@ -21,6 +21,11 @@ export interface SelectedMember extends LLMChannel {
     item_id?: number;
     weight?: number;
     latency_ms?: number;
+    /**
+     * 首 Token 验证未通过。保留在已选列表让用户手动删除或保留；
+     * 创建/更新提交时会自动过滤，避免坏模型进入分组。
+     */
+    validation_failed?: boolean;
 }
 
 function reorderList<T>(list: T[], startIndex: number, endIndex: number): T[] {
@@ -126,6 +131,14 @@ function MemberItem({
                                 title={t('card.latencyTitle')}
                             >
                                 {member.latency_ms} ms
+                            </span>
+                        )}
+                        {member.validation_failed && (
+                            <span
+                                className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive"
+                                title={t('card.validationFailedTitle')}
+                            >
+                                {t('card.validationFailed')}
                             </span>
                         )}
                     </div>

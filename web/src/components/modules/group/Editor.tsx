@@ -347,19 +347,35 @@ export function GroupEditor({
             {
                 onSuccess: (resp) => {
                     const results = resp.results ?? [];
+                    const failedKeys = new Set<string>();
+                    const failedMessages = new Map<string, string>();
+                    const passedByKey = new Map<string, number>();
+                    results.forEach((r) => {
+                        const k = `${r.channel_id}-${r.model_name}`;
+                        if (r.passed) {
+                            passedByKey.set(k, r.latency_ms);
+                        } else {
+                            failedKeys.add(k);
+                            failedMessages.set(k, r.error || t('form.testFailed'));
+                        }
+                    });
+
                     setSelectedMembers((prev) => {
-                        const passedByKey = new Map<string, number>();
-                        results.forEach((r) => {
-                            if (r.passed) passedByKey.set(`${r.channel_id}-${r.model_name}`, r.latency_ms);
-                        });
-                        if (passedByKey.size === 0) return prev;
+                        if (passedByKey.size === 0 && failedKeys.size === 0) return prev;
 
                         const existing = new Set(prev.map((m) => m.id));
                         const toAdd: SelectedMember[] = [];
+                        // 失败的项保留在列表里（让用户能看到并手动删除），
+                        // 但标上 validation_failed：创建提交时会自动过滤；
+                        // 仍处于 pending 状态的项不覆盖。
                         const next = prev.map((m) => {
+                            const isFailed = failedKeys.has(m.id);
                             const lat = passedByKey.get(m.id);
-                            if (lat === undefined) return m;
-                            return { ...m, latency_ms: lat };
+                            return {
+                                ...m,
+                                latency_ms: lat !== undefined ? lat : m.latency_ms,
+                                validation_failed: isFailed ? true : (m.validation_failed ?? false),
+                            };
                         });
 
                         passedByKey.forEach((lat, key) => {
@@ -373,10 +389,9 @@ export function GroupEditor({
                     });
                     setFailedMap((prev) => {
                         const next = new Map(prev);
-                        results.forEach((r) => {
-                            if (!r.passed) {
-                                next.set(`${r.channel_id}-${r.model_name}`, r.error || t('form.testFailed'));
-                            }
+                        failedMessages.forEach((msg, k) => next.set(k, msg));
+                        failedKeys.forEach((k) => {
+                            if (!failedMessages.has(k)) next.set(k, t('form.testFailed'));
                         });
                         return next;
                     });
