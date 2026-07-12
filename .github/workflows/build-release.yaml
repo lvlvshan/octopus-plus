@@ -61,21 +61,18 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '9'
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Build frontend
         run: |
-          pnpm install --frozen-lockfile
+          cd web
+          pnpm install
           pnpm run build
-        working-directory: web
         env:
           NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
 
