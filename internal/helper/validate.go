@@ -7,11 +7,15 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
+	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
+	"github.com/looplj/axonhub/llm/transformer/doubao"
+	"github.com/looplj/axonhub/llm/transformer/gemini"
+	"github.com/looplj/axonhub/llm/transformer/openai"
 )
 
 // ValidationResult 模型验证探针结果
@@ -46,7 +50,7 @@ func ValidateModelOneShot(
 		return ValidationResult{Passed: false, Msg: "no base URL"}
 	}
 
-	outbound, err := relay.NewOutbound(channel.Type, nil, baseURL, usedKey.ChannelKey)
+	outbound, err := newOutbound(channel.Type, baseURL, usedKey.ChannelKey)
 	if err != nil {
 		return ValidationResult{Passed: false, Msg: fmt.Sprintf("outbound transformer: %v", err)}
 	}
@@ -129,3 +133,22 @@ func DoProbe(channel *model.Channel, modelName string, timeoutSeconds int, ctx c
 
 func ptrInt(v int) *int             { return &v }
 func ptrFloat(v float64) *float64   { return &v }
+
+// newOutbound 选择对应协议的上游出站 transformer。validate.go 不直接
+// import relay 包以避免循环依赖（relay.go 内部已 import helper）。
+func newOutbound(channelType llm.APIFormat, baseURL, key string) (transformer.Outbound, error) {
+	switch channelType {
+	case llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAIResponse,
+		llm.APIFormatOpenAIEmbedding, llm.APIFormatOpenAIImageGeneration,
+		llm.APIFormatOpenAIImageEdit, llm.APIFormatOpenAIImageVariation:
+		return openai.NewOutboundTransformer(baseURL, key)
+	case llm.APIFormatAnthropicMessage:
+		return anthropic.NewOutboundTransformer(baseURL, key)
+	case llm.APIFormatGeminiContents:
+		return gemini.NewOutboundTransformer(baseURL, key)
+	case model.ChannelTypeDoubao:
+		return doubao.NewOutboundTransformer(baseURL, key)
+	default:
+		return nil, fmt.Errorf("unsupported channel type %s", channelType)
+	}
+}
