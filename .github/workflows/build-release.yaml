@@ -103,6 +103,10 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
+          # Resolve transitive dependencies against the sibling axonhub/llm
+          # local replace path; `go build` errors with "updates to go.mod
+          # needed" otherwise because the upstream repo is a sibling clone.
+          go mod tidy
           COMMIT_ID=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u '+%Y-%m-%d %T%z')
           LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=dev' \
