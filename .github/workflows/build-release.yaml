@@ -127,11 +127,7 @@ jobs:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
-          EXT="${{ env.EXT }}"
-          if [ -n "${EXT}" ]; then
-            mv "octopus-${TARGET_OS}-${TARGET_ARCH}${EXT}" "octopus${EXT}"
-          fi
-          md5sum octopus* > md5.txt
+          md5sum "octopus-${TARGET_OS}-${TARGET_ARCH}${EXT}" > md5.txt
           cat md5.txt
 
       - name: Upload artifact
@@ -139,7 +135,7 @@ jobs:
         with:
           name: octopus-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            octopus${{ env.EXT }}
+            octopus-${{ matrix.os }}-${{ matrix.arch }}${{ env.EXT }}
             md5.txt
           retention-days: 90
 
