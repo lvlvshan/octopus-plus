@@ -69,11 +69,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Build frontend
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
           pnpm run build
         working-directory: web
         env:
