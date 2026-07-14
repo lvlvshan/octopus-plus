@@ -188,19 +188,38 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 
 	// 批量新增 items
 	if len(req.ItemsToAdd) > 0 {
-		newItems := make([]model.GroupItem, len(req.ItemsToAdd))
-		for i, item := range req.ItemsToAdd {
-			newItems[i] = model.GroupItem{
+		// 内存层按 (channel_id, model_name) 去重，与 GroupItemBatchAdd 保持一致：
+		// 前端可能把同一个模型在列表里出现两次，或 items_to_add 与已有 item 撞键，
+		// 没有这一步会导致整条 INSERT 触发 UNIQUE 失败。
+		// OnConflict DoNothing 是兜底：哪怕内存去重漏了（例如分组已有但前端缓存没拉到），
+		// 也不让整事务回滚。
+		seen := make(map[string]struct{}, len(req.ItemsToAdd))
+		uniq := make([]model.GroupItem, 0, len(req.ItemsToAdd))
+		for _, item := range req.ItemsToAdd {
+			if item.ChannelID == 0 || item.ModelName == "" {
+				continue
+			}
+			k := fmt.Sprintf("%d|%s", item.ChannelID, item.ModelName)
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			uniq = append(uniq, model.GroupItem{
 				GroupID:   req.ID,
 				ChannelID: item.ChannelID,
 				ModelName: item.ModelName,
 				Priority:  item.Priority,
 				Weight:    item.Weight,
-			}
+			})
 		}
-		if err := tx.Create(&newItems).Error; err != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("failed to create items: %w", err)
+		if len(uniq) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "group_id"}, {Name: "channel_id"}, {Name: "model_name"}},
+				DoNothing: true,
+			}).Create(&uniq).Error; err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("failed to create items: %w", err)
+			}
 		}
 	}
 
