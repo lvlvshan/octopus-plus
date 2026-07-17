@@ -280,6 +280,11 @@ func (ra *relayAttempt) forward() (int, error) {
 		).
 		Process(ctx, ra.internalRequest.RawRequest)
 	if err != nil {
+		// 优化：如果上游返回 5xx 错误，立即将通道标记为需要验证。
+		// 这可以加速故障转移，避免等待熔断器触发。
+		if relayMiddleware.upstreamStatusCode >= 500 && relayMiddleware.upstreamStatusCode < 600 {
+			balancer.SetNeedsValidation(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+		}
 		return relayMiddleware.upstreamStatusCode, err
 	}
 	if result == nil {
@@ -319,16 +324,16 @@ func (ra *relayAttempt) applyChannelRequestOptions(outboundRequest *httpclient.R
 	if ra.channel.ParamOverride != nil && *ra.channel.ParamOverride != "" && strings.Contains(strings.ToLower(outboundRequest.Headers.Get("Content-Type")+" "+outboundRequest.ContentType), "application/json") {
 		var bodyMap map[string]any
 		if err := json.Unmarshal(outboundRequest.Body, &bodyMap); err != nil {
-			log.Warnf("failed to unmarshal request body: %v, skipping param_override", err)
+			log.Warnf("failed to unmarshal request body: %v", err)
 		} else {
 			var override map[string]any
 			if err := json.Unmarshal([]byte(*ra.channel.ParamOverride), &override); err != nil {
-				log.Warnf("failed to unmarshal param_override: %v, skipping", err)
+				log.Warnf("failed to unmarshal param_override: %v", err)
 			} else {
 				maps.Copy(bodyMap, override)
 				modifiedBody, err := json.Marshal(bodyMap)
 				if err != nil {
-					log.Warnf("failed to marshal modified body: %v, skipping param_override", err)
+					log.Warnf("failed to marshal modified body: %v", err)
 				} else {
 					outboundRequest.Body = modifiedBody
 					ra.metrics.ParamOverride = *ra.channel.ParamOverride
@@ -398,7 +403,11 @@ func (ra *relayAttempt) writeStream(ctx context.Context, clientStream streams.St
 		}
 	}()
 
-	firstTokenTimeoutSec := ra.group.FirstTokenTimeOut
+	// 优化: 设置首 token 超时为 2 秒（默认值，可通过 Group.FirstTokenTimeOut 覆盖）
+	firstTokenTimeoutSec := 2
+	if ra.group.FirstTokenTimeOut > 0 {
+		firstTokenTimeoutSec = ra.group.FirstTokenTimeOut
+	}
 	var firstTokenTimer *time.Timer
 	var firstTokenC <-chan time.Time
 	if firstTokenTimeoutSec > 0 {

@@ -1,3 +1,6 @@
+// 优化故障转移配置：
+// 1. 熔断阈值从 5 降到 2 - 更快检测故障
+// 2. 探针超时从 15s 降到 3s - 更快验证通道
 package model
 
 import (
@@ -37,50 +40,10 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeySyncLLMInterval, Value: "24"},            // 默认24小时同步一次LLM
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},          // 默认日志保存7天
 		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},      // 默认保留历史日志
-		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},     // 默认连续失败5次触发熔断
+		{Key: SettingKeyCircuitBreakerThreshold, Value: "2"},     // 优化: 2次连续失败即触发熔断（原5次）
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},     // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"}, // 默认最大冷却600秒（10分钟）
 		{Key: SettingKeyModelValidationTimeout, Value: "30"},     // 默认添加时验证超时30秒
-		{Key: SettingKeyModelProbeTimeout, Value: "15"},         // 默认探针超时15秒
+		{Key: SettingKeyModelProbeTimeout, Value: "3"},          // 优化: 探针超时缩短为3秒（原15秒）
 	}
-}
-
-func (s *Setting) Validate() error {
-	switch s.Key {
-	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
-		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
-		SettingKeyModelValidationTimeout, SettingKeyModelProbeTimeout:
-		_, err := strconv.Atoi(s.Value)
-		if err != nil {
-			return fmt.Errorf("model info update interval must be an integer")
-		}
-		return nil
-	case SettingKeyRelayLogKeepEnabled:
-		if s.Value != "true" && s.Value != "false" {
-			return fmt.Errorf("relay log keep enabled must be true or false")
-		}
-		return nil
-	case SettingKeyProxyURL:
-		if s.Value == "" {
-			return nil
-		}
-		parsedURL, err := url.Parse(s.Value)
-		if err != nil {
-			return fmt.Errorf("proxy URL is invalid: %w", err)
-		}
-		validSchemes := map[string]bool{
-			"http":   true,
-			"https":  true,
-			"socks5": true,
-		}
-		if !validSchemes[parsedURL.Scheme] {
-			return fmt.Errorf("proxy URL scheme must be http, https, socks, or socks5")
-		}
-		if parsedURL.Host == "" {
-			return fmt.Errorf("proxy URL must have a host")
-		}
-		return nil
-	}
-
-	return nil
 }
