@@ -47,3 +47,43 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelProbeTimeout, Value: "3"},          // 优化: 探针超时缩短为3秒（原15秒）
 	}
 }
+
+func (s *Setting) Validate() error {
+	switch s.Key {
+	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
+		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
+		SettingKeyModelValidationTimeout, SettingKeyModelProbeTimeout:
+		_, err := strconv.Atoi(s.Value)
+		if err != nil {
+			return fmt.Errorf("model info update interval must be an integer")
+		}
+		return nil
+	case SettingKeyRelayLogKeepEnabled:
+		if s.Value != "true" && s.Value != "false" {
+			return fmt.Errorf("relay log keep enabled must be true or false")
+		}
+		return nil
+	case SettingKeyProxyURL:
+		if s.Value == "" {
+			return nil
+		}
+		parsedURL, err := url.Parse(s.Value)
+		if err != nil {
+			return fmt.Errorf("proxy URL is invalid: %w", err)
+		}
+		validSchemes := map[string]bool{
+			"http":   true,
+			"https":  true,
+			"socks5": true,
+		}
+		if !validSchemes[parsedURL.Scheme] {
+			return fmt.Errorf("proxy URL scheme must be http, https, socks, or socks5")
+		}
+		if parsedURL.Host == "" {
+			return fmt.Errorf("proxy URL must have a host")
+		}
+		return nil
+	}
+
+	return nil
+}
