@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2 } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, Loader2 } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -52,6 +52,7 @@ function MemberItem({
     showConfirmDelete = true,
     layoutScope,
     dnd,
+    isPending = false,
 }: {
     member: SelectedMember;
     onRemove: (id: string) => void;
@@ -62,6 +63,7 @@ function MemberItem({
     showConfirmDelete?: boolean;
     layoutScope?: string;
     dnd: MemberItemDnd;
+    isPending?: boolean;
 }) {
     const t = useTranslations('group');
     const { Avatar: ModelAvatar } = getModelIcon(member.name);
@@ -88,13 +90,14 @@ function MemberItem({
             <div className={cn(
                 'flex items-center gap-2 rounded-lg bg-background border border-border/50 px-2.5 py-2 select-none transition-opacity duration-200 relative overflow-hidden',
                 isRemoving && 'opacity-0',
-                isDisabled && 'opacity-60 grayscale'
+                isDisabled && 'opacity-60 grayscale',
+                isPending && 'opacity-80'
             )}>
                 <span className={cn(
                     'size-5 rounded-md text-xs font-bold grid place-items-center shrink-0',
                     isDisabled ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'
                 )}>
-                    {index + 1}
+                    {isPending ? <Loader2 className="size-3 animate-spin" /> : index + 1}
                 </span>
 
                 <div
@@ -125,12 +128,22 @@ function MemberItem({
                             </TooltipTrigger>
                             <TooltipContent key={member.name}>{member.name}</TooltipContent>
                         </Tooltip>
-                        {typeof member.latency_ms === 'number' && (
+                        {typeof member.latency_ms === 'number' && !isPending && (
                             <span
                                 className="shrink-0 text-[10px] font-medium tabular-nums px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                                 title={t('card.latencyTitle')}
                             >
                                 {member.latency_ms} ms
+                            </span>
+                        )}
+                        {isPending && (
+                            <span
+                                className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary"
+                                title={t('form.testConnection')}
+                            >
+                                <span className="inline-flex items-center gap-1">
+                                    <Loader2 className="size-2.5 animate-spin" />
+                                </span>
                             </span>
                         )}
                         {member.validation_failed && (
@@ -224,6 +237,7 @@ export interface MemberListProps {
      */
     onDragFinish?: () => void;
     removingIds?: Set<string>;
+    pendingKeys?: Set<string>;
     showWeight?: boolean;
     /**
      * When true, show a confirmation overlay before removing an item.
@@ -244,6 +258,7 @@ export function MemberList({
     onDrop,
     onDragFinish,
     removingIds = new Set(),
+    pendingKeys = new Set(),
     showWeight = false,
     showConfirmDelete = true,
     layoutScope: externalLayoutScope,
@@ -346,6 +361,7 @@ export function MemberList({
                                                 onRemove={onRemove}
                                                 onWeightChange={onWeightChange}
                                                 isRemoving={removingIds.has(member.id)}
+                                                isPending={pendingKeys?.has(member.id) ?? false}
                                                 index={index}
                                                 showWeight={showWeight}
                                                 showConfirmDelete={showConfirmDelete}

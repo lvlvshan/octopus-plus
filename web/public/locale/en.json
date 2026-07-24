@@ -384,7 +384,12 @@
             "clear": "Clear",
             "selectChannel": "Channel",
             "selectModel": "Model",
-            "testFailed": "Test failed"
+            "testFailed": "Test failed",
+            "testConnection": "Test Connection",
+            "testConnectionSuccess": "Test completed, {{passed}}/{{total}} passed",
+            "testConnectionAllFailed": "All tests failed",
+            "testConnectionNoMembers": "Please add models first",
+            "resetStatus": "Reset Status"
         },
         "mode": {
             "roundRobin": "Round Robin",

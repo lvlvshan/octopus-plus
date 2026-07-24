@@ -384,7 +384,12 @@
             "clear": "清空",
             "selectChannel": "供應源",
             "selectModel": "模型",
-            "testFailed": "測試失敗"
+            "testFailed": "測試失敗",
+            "testConnection": "測試連接",
+            "testConnectionSuccess": "測試完成，{{passed}}/{{total}} 個通過",
+            "testConnectionAllFailed": "全部測試失敗",
+            "testConnectionNoMembers": "請先新增模型再測試",
+            "resetStatus": "重置狀態"
         },
         "mode": {
             "roundRobin": "輪詢",

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Loader2, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, ChevronDownIcon, Loader2, Plus, Search, Sparkles, Trash2, X, Zap } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
@@ -20,6 +20,7 @@ import { MemberList } from './ItemList';
 import { matchesGroupName, memberKey, normalizeKey, MODE_LABELS } from './utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { HelpCircle } from 'lucide-react';
+import { toast } from '@/components/common/Toast';
 
 
 
@@ -200,16 +201,22 @@ function SortSection({
     onRemove,
     onWeightChange,
     removingIds,
+    pendingKeys,
     showWeight,
     onClear,
+    onTest,
+    isTesting,
 }: {
     members: SelectedMember[];
     onReorder: (members: SelectedMember[]) => void;
     onRemove: (id: string) => void;
     onWeightChange: (id: string, weight: number) => void;
     removingIds: Set<string>;
+    pendingKeys: Set<string>;
     showWeight: boolean;
     onClear: () => void;
+    onTest: () => void;
+    isTesting: boolean;
 }) {
     const t = useTranslations('group');
 
@@ -224,21 +231,48 @@ function SortSection({
                         </span>
                     )}
                 </span>
-                <button
-                    type="button"
-                    onClick={onClear}
-                    disabled={members.length === 0}
-                    className={cn(
-                        'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
-                        members.length === 0
-                            ? 'text-muted-foreground/50 cursor-not-allowed'
-                            : 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                    )}
-                    title={t('form.clear')}
-                >
-                    <Trash2 className="size-3.5" />
-                    <span>{t('form.clear')}</span>
-                </button>
+                <div className="flex items-center gap-1">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={onTest}
+                                disabled={isTesting || members.length === 0}
+                                className={cn(
+                                    'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                                    isTesting || members.length === 0
+                                        ? 'text-muted-foreground/50 cursor-not-allowed'
+                                        : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                                )}
+                                title={members.length === 0 ? t('form.testConnectionNoMembers') : t('form.testConnection')}
+                            >
+                                {isTesting ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                    <Zap className="size-3.5" />
+                                )}
+                                <span>{t('form.testConnection')}</span>
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('form.testConnection')}</TooltipContent>
+                    </Tooltip>
+
+                    <button
+                        type="button"
+                        onClick={onClear}
+                        disabled={members.length === 0}
+                        className={cn(
+                            'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                            members.length === 0
+                                ? 'text-muted-foreground/50 cursor-not-allowed'
+                                : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                        )}
+                        title={t('form.clear')}
+                    >
+                        <Trash2 className="size-3.5" />
+                        <span>{t('form.clear')}</span>
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 min-h-0">
@@ -248,6 +282,7 @@ function SortSection({
                     onRemove={onRemove}
                     onWeightChange={onWeightChange}
                     removingIds={removingIds}
+                    pendingKeys={pendingKeys}
                     showWeight={showWeight}
                     showConfirmDelete={false}
                 />
@@ -440,6 +475,105 @@ export function GroupEditor({
         validateAndCommit(toAdd);
     }, [matchedModelChannels, selectedMembers, validateAndCommit]);
 
+    const handleTest = useCallback(() => {
+        if (selectedMembers.length === 0) return;
+        const testingKeys = selectedMembers.map((m) => m.id);
+        setPendingKeys((prev) => {
+            const next = new Set(prev);
+            testingKeys.forEach((k) => next.add(k));
+            return next;
+        });
+        setFailedMap((prev) => {
+            const next = new Map(prev);
+            testingKeys.forEach((k) => next.delete(k));
+            return next;
+        });
+
+        const itemsToTest = selectedMembers.map((m, idx) => ({
+            channel_id: m.channel_id,
+            model_name: m.name,
+            priority: idx + 1,
+            weight: m.weight ?? 1,
+        }));
+
+        validateMutation.mutate(
+            {
+                group_id: groupId ?? 0,
+                items_to_validate: itemsToTest,
+                validate_only: groupId === undefined,
+                timeout_seconds: firstTokenTimeOut,
+            },
+            {
+                onSuccess: (resp) => {
+                    const results = resp.results ?? [];
+                    const passedByKey = new Map<string, number>();
+                    const failedKeys = new Set<string>();
+                    const failedMessages = new Map<string, string>();
+
+                    results.forEach((r) => {
+                        const k = `${r.channel_id}-${r.model_name}`;
+                        if (r.passed) {
+                            passedByKey.set(k, r.latency_ms);
+                        } else {
+                            failedKeys.add(k);
+                            failedMessages.set(k, r.error || t('form.testFailed'));
+                        }
+                    });
+
+                    setSelectedMembers((prev) => {
+                        const existing = new Set(prev.map((m) => m.id));
+                        const toAdd: SelectedMember[] = [];
+                        const next = prev.map((m) => {
+                            const isFailed = failedKeys.has(m.id);
+                            const lat = passedByKey.get(m.id);
+                            return {
+                                ...m,
+                                latency_ms: lat !== undefined ? lat : m.latency_ms,
+                                validation_failed: isFailed || (m.validation_failed ?? false),
+                            };
+                        });
+
+                        passedByKey.forEach((lat, key) => {
+                            if (existing.has(key)) return;
+                            const ch = selectedMembers.find((c) => c.id === key);
+                            if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
+                        });
+
+                        if (toAdd.length === 0) return next;
+                        return [...next, ...toAdd];
+                    });
+
+                    setFailedMap((prev) => {
+                        const next = new Map(prev);
+                        failedMessages.forEach((msg, k) => next.set(k, msg));
+                        failedKeys.forEach((k) => {
+                            if (!failedMessages.has(k)) next.set(k, t('form.testFailed'));
+                        });
+                        return next;
+                    });
+
+                    const passedCount = results.filter((r) => r.passed).length;
+                    const total = results.length;
+                    if (passedCount > 0) {
+                        toast.success(t('form.testConnectionSuccess', { passed: passedCount, total }));
+                    } else {
+                        toast.error(t('form.testConnectionAllFailed'));
+                    }
+                },
+                onError: (error) => {
+                    testingKeys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error.message)));
+                },
+                onSettled: () => {
+                    setPendingKeys((prev) => {
+                        const next = new Set(prev);
+                        testingKeys.forEach((k) => next.delete(k));
+                        return next;
+                    });
+                },
+            },
+        );
+    }, [selectedMembers, groupId, validateMutation, t, firstTokenTimeOut]);
+
     const handleWeightChange = useCallback((id: string, weight: number) => {
         setSelectedMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
     }, []);
@@ -606,8 +740,11 @@ export function GroupEditor({
                                 onRemove={handleRemoveMember}
                                 onWeightChange={handleWeightChange}
                                 removingIds={removingIds}
+                                pendingKeys={pendingKeys}
                                 showWeight={mode === 4}
                                 onClear={handleClearMembers}
+                                onTest={handleTest}
+                                isTesting={validateMutation.isPending}
                             />
                         </div>
                     </div>

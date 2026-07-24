@@ -384,7 +384,12 @@
             "clear": "清空",
             "selectChannel": "渠道",
             "selectModel": "模型",
-            "testFailed": "测试失败"
+            "testFailed": "测试失败",
+            "testConnection": "测试连接",
+            "testConnectionSuccess": "测试完成，{{passed}}/{{total}} 个通过",
+            "testConnectionAllFailed": "全部测试失败",
+            "testConnectionNoMembers": "请先添加模型再测试",
+            "resetStatus": "重新测试"
         },
         "mode": {
             "roundRobin": "轮询",
