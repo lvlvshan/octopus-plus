@@ -57,7 +57,7 @@ function ModelPickerSection({
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
 const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set());
-const [openChannelIds, setOpenChannelIds] = useState<Set<number>>(new Set());
+// const [openChannelIds, setOpenChannelIds] = useState<Set<number>>(new Set());
 
     const selectedKeys = useMemo(() => new Set(selectedMembers.map(memberKey)), [selectedMembers]);
     const normalizedSearch = searchKeyword.trim().toLowerCase();
@@ -71,7 +71,11 @@ const [openChannelIds, setOpenChannelIds] = useState<Set<number>>(new Set());
         });
 
         return Array.from(byId.values())
-            .map((c) => ({ ...c, models: [...c.models].sort((a, b) => (a.latency_ms ?? Number.MAX_VALUE) - (b.latency_ms ?? Number.MAX_VALUE)) }))
+            .map((c) => ({ ...c, models: [...c.models].sort((a, b) => {
+                const la = (a as any).latency_ms ?? Number.MAX_VALUE;
+                const lb = (b as any).latency_ms ?? Number.MAX_VALUE;
+                return la - lb;
+            }) }))
             .sort((a, b) => a.id - b.id);
     }, [modelChannels]);
 
