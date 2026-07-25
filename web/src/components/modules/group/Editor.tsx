@@ -425,6 +425,14 @@ export function GroupEditor({
         return { matchedModelChannels: modelChannels.filter((mc) => matchesGroupName(mc.name, groupKey)), regexError: '' };
     }, [groupKey, regexKey, modelChannels]);
 
+    const sortMembersByLatency = useCallback((members: SelectedMember[]): SelectedMember[] => {
+        return [...members].sort((a, b) => {
+            const la = a.latency_ms ?? Number.MAX_VALUE;
+            const lb = b.latency_ms ?? Number.MAX_VALUE;
+            return la - lb;
+        });
+    }, []);
+
     const validateAndCommit = useCallback((channels: LLMChannel[]) => {
         if (channels.length === 0) return;
         const keys = channels.map(memberKey);
@@ -652,14 +660,6 @@ export function GroupEditor({
 
     const handleWeightChange = useCallback((id: string, weight: number) => {
         setSelectedMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
-    }, []);
-
-    const sortMembersByLatency = useCallback((members: SelectedMember[]): SelectedMember[] => {
-        return [...members].sort((a, b) => {
-            const la = a.latency_ms ?? Number.MAX_VALUE;
-            const lb = b.latency_ms ?? Number.MAX_VALUE;
-            return la - lb;
-        });
     }, []);
 
     const handleSort = useCallback(() => {
