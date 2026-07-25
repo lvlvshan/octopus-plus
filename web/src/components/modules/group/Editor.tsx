@@ -391,6 +391,7 @@ export function GroupEditor({
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
     const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
     const [failedMap, setFailedMap] = useState<Map<string, string>>(new Map());
+const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set());
     const validateMutation = useAddModelsWithValidation();
     const handleRemoveMember = useCallback((id: string) => {
         setRemovingIds((prev) => new Set(prev).add(id));
