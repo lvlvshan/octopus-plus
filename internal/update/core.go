@@ -2,10 +2,12 @@ package update
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -35,13 +37,45 @@ func UpdateCore() error {
 		return err
 	}
 
-	if err := unzip(data, filepath.Dir(execPath)); err != nil {
+	// Extract to temp dir first (Windows cannot overwrite running .exe)
+	tmpDir, err := os.MkdirTemp("", "octopus-update-*")
+	if err != nil {
+		log.Warnf("create temp dir failed: %v", err)
+		return err
+	}
+	defer os.RemoveAll(tmpDir) // cleanup on failure
+
+	if err := unzip(data, tmpDir); err != nil {
 		log.Warnf("unzip failed: %v", err)
+		os.RemoveAll(tmpDir)
 		return err
 	}
 
-	log.Infof("update core success")
-	go restartExecutable(execPath)
+	// Find the new executable in extracted files
+	var newExePath string
+	err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".exe") {
+			newExePath = path
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warnf("scan extracted files failed: %v", err)
+		os.RemoveAll(tmpDir)
+		return err
+	}
+	if newExePath == "" {
+		log.Warnf("no .exe file found in extracted archive")
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("no executable found in update package")
+	}
+
+	log.Infof("update core success, restarting with: %s", newExePath)
+	go restartExecutable(execPath, newExePath)
 	return nil
 }
 
@@ -79,13 +113,24 @@ func getDownloadFilename() (string, error) {
 	return "", fmt.Errorf("unsupported platform: %s/%s", goos, arch)
 }
 
-func restartExecutable(execPath string) {
+func restartExecutable(oldExecPath, newExePath string) {
 	shutdown.Shutdown()
 
-	log.Infof("restarting: %q %q", execPath, os.Args[1:])
+	log.Infof("restarting: %q -> %q", oldExecPath, newExePath)
 
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command(execPath, os.Args[1:]...)
+		// Copy new exe to target location before replacing
+		destDir := filepath.Dir(oldExecPath)
+		baseName := filepath.Base(newExePath)
+		destPath := filepath.Join(destDir, baseName)
+
+		if err := copyFile(newExePath, destPath); err != nil {
+			log.Errorf("copy new executable failed: %v", err)
+			os.Exit(1)
+		}
+		log.Infof("copied %s -> %s", newExePath, destPath)
+
+		cmd := exec.Command(destPath, os.Args[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -95,7 +140,58 @@ func restartExecutable(execPath string) {
 		os.Exit(0)
 	}
 
-	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
+	// Unix: replace in-place then exec
+	destDir := filepath.Dir(oldExecPath)
+	baseName := filepath.Base(newExePath)
+	destPath := filepath.Join(destDir, baseName)
+
+	if err := copyFile(newExePath, destPath); err != nil {
+		log.Errorf("copy new executable failed: %v", err)
+		return
+	}
+
+	if err := syscall.Exec(destPath, os.Args, os.Environ()); err != nil {
 		log.Errorf("restarting failed: %v", err)
 	}
+}
+
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer sourceFile.Close()
+
+	tempDst := dst + ".tmp"
+	destFile, err := os.OpenFile(tempDst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("open dest: %w", err)
+	}
+
+	if _, err = io.Copy(destFile, sourceFile); err != nil {
+		destFile.Close()
+		os.Remove(tempDst)
+		return fmt.Errorf("copy data: %w", err)
+	}
+
+	if err = destFile.Close(); err != nil {
+		os.Remove(tempDst)
+		return fmt.Errorf("close dest: %w", err)
+	}
+
+	// Atomic rename (works on same filesystem)
+	if err = os.Rename(tempDst, dst); err != nil {
+		// Fallback: try remove + rename
+		os.Remove(dst)
+		if err = os.Rename(tempDst, dst); err != nil {
+			return fmt.Errorf("rename dest: %w", err)
+		}
+	}
+
+	// Preserve execute permission
+	if err = os.Chmod(dst, 0755); err != nil {
+		log.Warnf("chmod failed: %v", err)
+	}
+
+	return nil
 }
