@@ -15,8 +15,43 @@ permissions:
   contents: write
 
 jobs:
+  compute-version:
+    name: Compute next version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.TAG }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: version
+        run: |
+          git fetch --tags --force
+          latest=$(git tag -l 'v*' --sort=-version:refname | head -1)
+          if [ -z "$latest" ]; then
+            TAG="v1.0.0"
+          else
+            version="${latest#v}"
+            major=$(echo "$version" | cut -d. -f1)
+            minor=$(echo "$version" | cut -d. -f2)
+            minor=$((minor + 1))
+            TAG="v${major}.${minor}.0"
+          fi
+
+          # If input release_tag provided via workflow_dispatch, override
+          if [ "${{ github.event.inputs.release_tag }}" != "" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          fi
+
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Computed version: $TAG"
+
   build:
     name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    needs: compute-version
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -74,7 +109,7 @@ jobs:
           pnpm install
           pnpm --filter octopus build
         env:
-          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+          NEXT_PUBLIC_APP_VERSION: ${{ needs.compute-version.outputs.tag }}
 
       - name: Move frontend output
         run: |
@@ -87,9 +122,6 @@ jobs:
 
       - name: Fix go.mod for CI
         run: |
-          # The upstream build script expects a sibling ../axonhub/llm
-          # directory (see go.mod 'replace' directive). Clone it here so
-          # `go build` can resolve the local replace path.
           if [ ! -d "../axonhub" ]; then
             git clone --depth 1 https://github.com/looplj/axonhub.git ../axonhub
           else
@@ -104,13 +136,10 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          # Resolve transitive dependencies against the sibling axonhub/llm
-          # local replace path; `go build` errors with "updates to go.mod
-          # needed" otherwise because the upstream repo is a sibling clone.
           go mod tidy
           COMMIT_ID=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u '+%Y-%m-%d %T%z')
-          LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=dev' \
+          LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=${{ needs.compute-version.outputs.tag }}' \
                    -X 'github.com/bestruirui/octopus/internal/conf.BuildTime=${BUILD_TIME}' \
                    -X 'github.com/bestruirui/octopus/internal/conf.Author=github-actions' \
                    -X 'github.com/bestruirui/octopus/internal/conf.Commit=${COMMIT_ID}' \
@@ -141,7 +170,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: build
+    needs: [compute-version, build]
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -176,10 +205,10 @@ jobs:
             echo '```'
           } > checksums.md
 
-          # Build release body to a temp file; step output will hold the path.
           {
             echo "## Downloads"
             echo ""
+            echo "**Version:** \`${{ needs.compute-version.outputs.tag }}\`"
             echo "**Commit:** \`${{ github.sha }}\`"
             echo "**Build time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo ""
@@ -205,16 +234,16 @@ jobs:
 
           echo "body_path=release_body.md" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
+      - name: Create Tag and Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: dev-${{ github.run_id }}
-          name: dev build #${{ github.run_number }}
+          tag_name: ${{ needs.compute-version.outputs.tag }}
+          name: Release ${{ needs.compute-version.outputs.tag }}
           body_path: ${{ steps.checksums.outputs.body_path }}
           draft: false
-          prerelease: true
-          generate_release_notes: false
+          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -237,7 +266,7 @@ jobs:
 
   update-release-body:
     name: Update Release Body
-    needs: release
+    needs: [compute-version, release]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -254,15 +283,13 @@ jobs:
           RELEASE_ID=${{ needs.release.outputs.release_id }}
           echo "Release ID: ${RELEASE_ID}"
 
-          # Get all uploaded assets
           ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets")
 
-          # Build a list of asset names (excluding md5 files)
           NAMES=$(echo "$ASSETS" | jq -r '.[] | select(.name | endswith(".md5") | not) | .name')
 
-          # Build markdown table of downloads
           TABLE="## Downloads\n\n"
+          TABLE+="**Version:** \`${{ needs.compute-version.outputs.tag }}\`  \n"
           TABLE+="**Commit:** \`${{ github.sha }}\`  \n"
           TABLE+="**Build:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')  \n\n"
           TABLE+="### Binaries\n\n"
@@ -277,7 +304,6 @@ jobs:
               exe) os="Windows"; arch="${name%.exe}"; arch="${arch##*-}" ;;
               *) os=$(echo "$name" | cut -d- -f2); arch=$(echo "$name" | cut -d- -f3) ;;
             esac
-            # Strip the .exe extension (or nothing) to find the per-platform .md5 file
             base="${name%.exe}"
             md5_file="artifacts/${base}.md5"
             if [ -f "$md5_file" ]; then
@@ -298,7 +324,6 @@ jobs:
           fi
           TABLE+="\n\`\`\`\n"
 
-          # Update release body
           curl -s -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \

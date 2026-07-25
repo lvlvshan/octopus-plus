@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Loader2, Plus, Search, Sparkles, Trash2, X, Zap } from 'lucide-react';
+import { Check, ChevronDownIcon, Loader2, Plus, Search, Sparkles, Trash2, X, Zap, ArrowUpDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
@@ -41,6 +41,8 @@ function ModelPickerSection({
     autoAddDisabled,
     pendingKeys,
     failedMap,
+    onBatchTest,
+    isBatchTesting,
 }: {
     modelChannels: LLMChannel[];
     selectedMembers: SelectedMember[];
@@ -49,6 +51,8 @@ function ModelPickerSection({
     autoAddDisabled: boolean;
     pendingKeys: Set<string>;
     failedMap: Map<string, string>;
+    onBatchTest: (models: LLMChannel[]) => void;
+    isBatchTesting: boolean;
 }) {
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -83,6 +87,19 @@ function ModelPickerSection({
         }, []);
     }, [channels, normalizedSearch]);
 
+    const modelsToBatchTest = useMemo(() => {
+        const toTest: LLMChannel[] = [];
+        filteredChannels.forEach((channel) => {
+            channel.models.forEach((m) => {
+                const key = memberKey(m);
+                if (!selectedKeys.has(key)) {
+                    toTest.push(m);
+                }
+            });
+        });
+        return toTest;
+    }, [filteredChannels, selectedKeys]);
+
     return (
         <div className="rounded-xl border border-border/50 bg-muted/30 flex flex-col min-h-0">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2 border-b border-border/30 bg-muted/50">
@@ -100,21 +117,50 @@ function ModelPickerSection({
                     />
                 </div>
 
-                <button
-                    type="button"
-                    onClick={onAutoAdd}
-                    className={cn(
-                        'justify-self-end shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
-                        autoAddDisabled
-                            ? 'text-muted-foreground/50 cursor-not-allowed'
-                            : 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                    )}
-                    disabled={autoAddDisabled}
-                    title={t('form.autoAdd')}
-                >
-                    <Sparkles className="size-3.5" />
-                    <span>{t('form.autoAdd')}</span>
-                </button>
+                <div className="justify-self-end shrink-0 flex items-center gap-1.5">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    type="button"
+                                    onClick={() => onBatchTest(modelsToBatchTest)}
+                                    disabled={isBatchTesting || modelsToBatchTest.length === 0}
+                                    className={cn(
+                                        'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                                        isBatchTesting || modelsToBatchTest.length === 0
+                                            ? 'text-muted-foreground/50 cursor-not-allowed'
+                                            : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                                    )}
+                                    title={modelsToBatchTest.length === 0 ? t('form.testConnectionNoMembers') : t('form.testConnection')}
+                                >
+                                    {isBatchTesting ? (
+                                        <Loader2 className="size-3.5 animate-spin" />
+                                    ) : (
+                                        <Zap className="size-3.5" />
+                                    )}
+                                    <span>{t('form.testConnection')}</span>
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('form.testConnection')}</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+
+                    <button
+                        type="button"
+                        onClick={onAutoAdd}
+                        className={cn(
+                            'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                            autoAddDisabled
+                                ? 'text-muted-foreground/50 cursor-not-allowed'
+                                : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                        )}
+                        disabled={autoAddDisabled}
+                        title={t('form.autoAdd')}
+                    >
+                        <Sparkles className="size-3.5" />
+                        <span>{t('form.autoAdd')}</span>
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
@@ -206,6 +252,7 @@ function SortSection({
     onClear,
     onTest,
     isTesting,
+    onSort,
 }: {
     members: SelectedMember[];
     onReorder: (members: SelectedMember[]) => void;
@@ -217,6 +264,7 @@ function SortSection({
     onClear: () => void;
     onTest: () => void;
     isTesting: boolean;
+    onSort: () => void;
 }) {
     const t = useTranslations('group');
 
@@ -255,6 +303,27 @@ function SortSection({
                             </button>
                         </TooltipTrigger>
                         <TooltipContent>{t('form.testConnection')}</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={onSort}
+                                disabled={members.length === 0}
+                                className={cn(
+                                    'flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                                    members.length === 0
+                                        ? 'text-muted-foreground/50 cursor-not-allowed'
+                                        : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                                )}
+                                title={t('form.sortByLatency')}
+                            >
+                                <ArrowUpDown className="size-3.5" />
+                                <span>{t('form.sortByLatency')}</span>
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('form.sortByLatency')}</TooltipContent>
                     </Tooltip>
 
                     <button
@@ -321,6 +390,13 @@ export function GroupEditor({
     const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
     const [failedMap, setFailedMap] = useState<Map<string, string>>(new Map());
     const validateMutation = useAddModelsWithValidation();
+    const handleRemoveMember = useCallback((id: string) => {
+        setRemovingIds((prev) => new Set(prev).add(id));
+        setTimeout(() => {
+            setSelectedMembers((prev) => prev.filter((m) => m.id !== id));
+            setRemovingIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+        }, 200);
+    }, []);
 
     const groupKey = normalizeKey(groupName);
     const regexKey = matchRegex.trim();
@@ -420,7 +496,7 @@ export function GroupEditor({
                         });
 
                         if (toAdd.length === 0) return next;
-                        return [...next, ...toAdd];
+                        return sortMembersByLatency([...next, ...toAdd]);
                     });
                     setFailedMap((prev) => {
                         const next = new Map(prev);
@@ -443,7 +519,7 @@ export function GroupEditor({
                 },
             },
         );
-    }, [groupId, validateMutation, t, firstTokenTimeOut]);
+    }, [groupId, validateMutation, t, firstTokenTimeOut, sortMembersByLatency]);
 
     const handleAddMember = useCallback((channel: LLMChannel) => {
         const key = memberKey(channel);
@@ -539,6 +615,121 @@ export function GroupEditor({
                             if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
                         });
 
+                        if (toAdd.length === 0) return sortMembersByLatency(next);
+                        return sortMembersByLatency([...next, ...toAdd]);
+                    });
+
+                    setFailedMap((prev) => {
+                        const next = new Map(prev);
+                        failedMessages.forEach((msg, k) => next.set(k, msg));
+                        failedKeys.forEach((k) => {
+                            if (!failedMessages.has(k)) next.set(k, t('form.testFailed'));
+                        });
+                        return next;
+                    });
+
+                    const passedCount = results.filter((r) => r.passed).length;
+                    const total = results.length;
+                    if (passedCount > 0) {
+                        toast.success(t('form.testConnectionSuccess', { passed: passedCount, total }));
+                    } else {
+                        toast.error(t('form.testConnectionAllFailed'));
+                    }
+                },
+                onError: (error) => {
+                    testingKeys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error.message)));
+                },
+                onSettled: () => {
+                    setPendingKeys((prev) => {
+                        const next = new Set(prev);
+                        testingKeys.forEach((k) => next.delete(k));
+                        return next;
+                    });
+                },
+            },
+        );
+    }, [selectedMembers, groupId, validateMutation, t, firstTokenTimeOut, sortMembersByLatency]);
+
+    const handleWeightChange = useCallback((id: string, weight: number) => {
+        setSelectedMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
+    }, []);
+
+    const sortMembersByLatency = useCallback((members: SelectedMember[]): SelectedMember[] => {
+        return [...members].sort((a, b) => {
+            const la = a.latency_ms ?? Number.MAX_VALUE;
+            const lb = b.latency_ms ?? Number.MAX_VALUE;
+            return la - lb;
+        });
+    }, []);
+
+    const handleSort = useCallback(() => {
+        setSelectedMembers((prev) => sortMembersByLatency(prev));
+    }, [sortMembersByLatency]);
+
+    const handleBatchTest = useCallback((models: LLMChannel[]) => {
+        if (models.length === 0) return;
+        const testingKeys = models.map(memberKey);
+        setPendingKeys((prev) => {
+            const next = new Set(prev);
+            testingKeys.forEach((k) => next.add(k));
+            return next;
+        });
+        setFailedMap((prev) => {
+            const next = new Map(prev);
+            testingKeys.forEach((k) => next.delete(k));
+            return next;
+        });
+
+        const itemsToTest = models.map((m, idx) => ({
+            channel_id: m.channel_id,
+            model_name: m.name,
+            priority: idx + 1,
+            weight: 1,
+        }));
+
+        validateMutation.mutate(
+            {
+                group_id: groupId ?? 0,
+                items_to_validate: itemsToTest,
+                validate_only: groupId === undefined,
+                timeout_seconds: firstTokenTimeOut,
+            },
+            {
+                onSuccess: (resp) => {
+                    const results = resp.results ?? [];
+                    const passedByKey = new Map<string, number>();
+                    const failedKeys = new Set<string>();
+                    const failedMessages = new Map<string, string>();
+
+                    results.forEach((r) => {
+                        const k = `${r.channel_id}-${r.model_name}`;
+                        if (r.passed) {
+                            passedByKey.set(k, r.latency_ms);
+                        } else {
+                            failedKeys.add(k);
+                            failedMessages.set(k, r.error || t('form.testFailed'));
+                        }
+                    });
+
+                    setSelectedMembers((prev) => {
+                        const existing = new Set(prev.map((m) => m.id));
+                        const toAdd: SelectedMember[] = [];
+                        const next = prev.map((m) => {
+                            const isFailed = failedKeys.has(m.id);
+                            const lat = passedByKey.get(m.id);
+                            return {
+                                ...m,
+                                latency_ms: lat !== undefined ? lat : m.latency_ms,
+                                validation_failed: isFailed || (m.validation_failed ?? false),
+                            };
+                        });
+
+                        passedByKey.forEach((lat, key) => {
+                            if (existing.has(key)) return;
+                            const ch = models.find((c) => memberKey(c) === key);
+                            if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
+                        });
+
                         if (toAdd.length === 0) return next;
                         return [...next, ...toAdd];
                     });
@@ -572,19 +763,7 @@ export function GroupEditor({
                 },
             },
         );
-    }, [selectedMembers, groupId, validateMutation, t, firstTokenTimeOut]);
-
-    const handleWeightChange = useCallback((id: string, weight: number) => {
-        setSelectedMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
-    }, []);
-
-    const handleRemoveMember = useCallback((id: string) => {
-        setRemovingIds((prev) => new Set(prev).add(id));
-        setTimeout(() => {
-            setSelectedMembers((prev) => prev.filter((m) => m.id !== id));
-            setRemovingIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
-        }, 200);
-    }, []);
+    }, [groupId, validateMutation, t, firstTokenTimeOut]);
 
     const handleClearMembers = useCallback(() => {
         setSelectedMembers([]);
@@ -733,6 +912,8 @@ export function GroupEditor({
                                 autoAddDisabled={autoAddDisabled}
                                 pendingKeys={pendingKeys}
                                 failedMap={failedMap}
+                                onBatchTest={handleBatchTest}
+                                isBatchTesting={validateMutation.isPending}
                             />
                             <SortSection
                                 members={selectedMembers}
@@ -745,6 +926,7 @@ export function GroupEditor({
                                 onClear={handleClearMembers}
                                 onTest={handleTest}
                                 isTesting={validateMutation.isPending}
+                                onSort={handleSort}
                             />
                         </div>
                     </div>

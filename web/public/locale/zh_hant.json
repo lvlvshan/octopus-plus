@@ -389,6 +389,7 @@
             "testConnectionSuccess": "測試完成，{{passed}}/{{total}} 個通過",
             "testConnectionAllFailed": "全部測試失敗",
             "testConnectionNoMembers": "請先新增模型再測試",
+            "sortByLatency": "按延遲排序",
             "resetStatus": "重置狀態"
         },
         "mode": {

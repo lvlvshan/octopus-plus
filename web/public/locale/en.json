@@ -389,6 +389,7 @@
             "testConnectionSuccess": "Test completed, {{passed}}/{{total}} passed",
             "testConnectionAllFailed": "All tests failed",
             "testConnectionNoMembers": "Please add models first",
+            "sortByLatency": "Sort by Latency",
             "resetStatus": "Reset Status"
         },
         "mode": {
