@@ -37,7 +37,7 @@ func UpdateCore() error {
 		return err
 	}
 
-	// Extract to temp dir first (Windows cannot overwrite running .exe)
+	// Extract to temp dir first (cannot overwrite running binary)
 	tmpDir, err := os.MkdirTemp("", "octopus-update-*")
 	if err != nil {
 		log.Warnf("create temp dir failed: %v", err)
@@ -45,33 +45,43 @@ func UpdateCore() error {
 	}
 	defer os.RemoveAll(tmpDir) // cleanup on failure
 
-	if err := unzip(data, tmpDir); err != nil {
-		log.Warnf("unzip failed: %v", err)
-		os.RemoveAll(tmpDir)
-		return err
-	}
-
-	// Find the new executable in extracted files
 	var newExePath string
-	err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	if strings.HasSuffix(filename, ".zip") {
+		// Zip archive — extract and find .exe inside
+		if err := unzip(data, tmpDir); err != nil {
+			log.Warnf("unzip failed: %v", err)
+			os.RemoveAll(tmpDir)
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".exe") {
-			newExePath = path
-			return filepath.SkipDir
+		err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".exe") {
+				newExePath = path
+				return filepath.SkipDir
+			}
+			return nil
+		})
+		if err != nil {
+			log.Warnf("scan extracted files failed: %v", err)
+			os.RemoveAll(tmpDir)
+			return err
 		}
-		return nil
-	})
-	if err != nil {
-		log.Warnf("scan extracted files failed: %v", err)
-		os.RemoveAll(tmpDir)
-		return err
-	}
-	if newExePath == "" {
-		log.Warnf("no .exe file found in extracted archive")
-		os.RemoveAll(tmpDir)
-		return fmt.Errorf("no executable found in update package")
+		if newExePath == "" {
+			log.Warnf("no .exe file found in extracted archive")
+			os.RemoveAll(tmpDir)
+			return fmt.Errorf("no executable found in update package")
+		}
+	} else {
+		// Bare binary — write directly to temp dir with the correct name
+		execName := filepath.Base(filename)
+		newExePath = filepath.Join(tmpDir, execName)
+		if err := os.WriteFile(newExePath, data, 0755); err != nil {
+			log.Warnf("write temp binary failed: %v", err)
+			os.RemoveAll(tmpDir)
+			return err
+		}
 	}
 
 	log.Infof("update core success, restarting with: %s", newExePath)
@@ -87,27 +97,27 @@ func getDownloadFilename() (string, error) {
 	case "windows":
 		switch arch {
 		case "386":
-			return "octopus-windows-x86.zip", nil
+			return "octopus-windows-386.exe", nil
 		case "amd64":
-			return "octopus-windows-x86_64.zip", nil
+			return "octopus-windows-amd64.exe", nil
 		}
 	case "darwin":
 		switch arch {
 		case "amd64":
-			return "octopus-darwin-x86_64.zip", nil
+			return "octopus-darwin-amd64", nil
 		case "arm64":
-			return "octopus-darwin-arm64.zip", nil
+			return "octopus-darwin-arm64", nil
 		}
 	case "linux":
 		switch arch {
 		case "386":
-			return "octopus-linux-x86.zip", nil
+			return "octopus-linux-386", nil
 		case "amd64":
-			return "octopus-linux-x86_64.zip", nil
+			return "octopus-linux-amd64", nil
 		case "arm":
-			return "octopus-linux-armv7.zip", nil
+			return "octopus-linux-armv7", nil
 		case "arm64":
-			return "octopus-linux-arm64.zip", nil
+			return "octopus-linux-arm64", nil
 		}
 	}
 	return "", fmt.Errorf("unsupported platform: %s/%s", goos, arch)
