@@ -236,6 +236,43 @@ export interface AddModelsWithValidationResponse {
 // }
 
 /**
+ * 渠道模型验证请求
+ */
+export interface ChannelTestRequest {
+    channel_id: number;
+    /** 单次验证的超时（秒），<=0 时后端使用全局默认。 */
+    timeout_seconds?: number;
+}
+
+/**
+ * 渠道模型验证响应
+ */
+export interface ChannelTestResponse {
+    results: ModelValidationResult[];
+}
+
+/**
+ * 渠道测试连接 Hook
+ *
+ * 后端路由: POST /api/v1/channel/test
+ * Body: { channel_id, timeout_seconds }
+ * Response: { results: [{channel_id, model_name, passed, error, latency_ms}] }
+ */
+export function useChannelTest() {
+    return useMutation({
+        mutationFn: async (data: ChannelTestRequest) => {
+            return apiClient.post<ChannelTestResponse>(
+                '/api/v1/channel/test',
+                data,
+            );
+        },
+        onError: (error) => {
+            logger.error('渠道测试失败:', error);
+        },
+    });
+}
+
+/**
  * 添加模型并验证 Hook（首 Token 测试）
  *
  * 后端路由: POST /api/v1/group/add-models-with-validation
@@ -268,4 +305,6 @@ export function useAddModelsWithValidation() {
         },
     });
 }
+
+
 

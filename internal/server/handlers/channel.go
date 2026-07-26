@@ -44,6 +44,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test", http.MethodPost).
+				Handle(testChannelModels),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -170,4 +174,23 @@ func syncChannel(c *gin.Context) {
 func getLastSyncTime(c *gin.Context) {
 	time := task.GetLastSyncModelsTime()
 	resp.Success(c, time)
+}
+
+type testChannelRequest struct {
+	ChannelID      int `json:"channel_id" binding:"required"`
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+}
+
+func testChannelModels(c *gin.Context) {
+	var req testChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	results, err := op.TestChannelModels(req.ChannelID, req.TimeoutSeconds, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, results)
 }

@@ -386,6 +386,7 @@
             "selectModel": "Model",
             "testFailed": "Test failed",
             "testConnection": "Test Connection",
+            "testChannel": "Test",
             "testConnectionSuccess": "Test completed, {{passed}}/{{total}} passed",
             "testConnectionAllFailed": "All tests failed",
             "testConnectionNoMembers": "Please add models first",

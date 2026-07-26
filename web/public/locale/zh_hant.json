@@ -386,6 +386,7 @@
             "selectModel": "模型",
             "testFailed": "測試失敗",
             "testConnection": "測試連接",
+            "testChannel": "測試",
             "testConnectionSuccess": "測試完成，{{passed}}/{{total}} 個通過",
             "testConnectionAllFailed": "全部測試失敗",
             "testConnectionNoMembers": "請先新增模型再測試",

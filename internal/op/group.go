@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/utils/xstrings"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"gorm.io/gorm"
@@ -481,6 +481,74 @@ func persistValidationRecord(channelID int, modelName string, result model.Valid
 			"pass_count": gorm.Expr("pass_count + ?", map[bool]int{true: 1, false: 0}[result.Passed]),
 		})
 	SetValidationStatus(channelID, modelName, status, result.Msg)
+}
+
+// TestChannelModels validates all models for a specific channel without adding them to any group.
+func TestChannelModels(channelID int, timeoutSeconds int, ctx context.Context) ([]model.ModelValidationResult, error) {
+	channel, err := ChannelGet(channelID, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("channel not found: %w", err)
+	}
+	if !channel.Enabled {
+		return nil, fmt.Errorf("channel is disabled")
+	}
+
+	modelNames := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)
+	if len(modelNames) == 0 {
+		return []model.ModelValidationResult{}, nil
+	}
+
+	timeout := timeoutSeconds
+	if timeout <= 0 {
+		timeout, _ = SettingGetInt(model.SettingKeyModelValidationTimeout)
+		if timeout <= 0 {
+			timeout = 30
+		}
+	}
+
+	type validationResult struct {
+		channelID int
+		modelName string
+		result    model.ValidationResult
+	}
+
+	const maxConcurrency = 5
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+	resultCh := make(chan validationResult, len(modelNames))
+
+	for _, modelName := range modelNames {
+		if modelName == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(mname string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res := ValidateModelOneShot(channel, mname, timeout, ctx)
+			resultCh <- validationResult{channel.ID, mname, res}
+		}(modelName)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var results []model.ModelValidationResult
+	for r := range resultCh {
+		results = append(results, model.ModelValidationResult{
+			ChannelID: r.channelID,
+			ModelName: r.modelName,
+			Passed:    r.result.Passed,
+			Error:     r.result.Msg,
+			LatencyMs: r.result.LatencyMs,
+		})
+	}
+
+	return results, nil
 }
 
 // AddModelsWithValidation validates each model then adds passed ones to the group.

@@ -386,6 +386,7 @@
             "selectModel": "模型",
             "testFailed": "测试失败",
             "testConnection": "测试连接",
+            "testChannel": "测试",
             "testConnectionSuccess": "测试完成，{{passed}}/{{total}} 个通过",
             "testConnectionAllFailed": "全部测试失败",
             "testConnectionNoMembers": "请先添加模型再测试",

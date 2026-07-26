@@ -7,6 +7,7 @@ import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
 import {
     useAddModelsWithValidation,
+    useChannelTest as useChannelTestMutation,
 } from '@/api/endpoints/group';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -43,6 +44,8 @@ function ModelPickerSection({
     failedMap,
     onBatchTest,
     isBatchTesting,
+    onTestChannel,
+    isChannelTesting,
 }: {
     modelChannels: LLMChannel[];
     selectedMembers: SelectedMember[];
@@ -53,6 +56,8 @@ function ModelPickerSection({
     failedMap: Map<string, string>;
     onBatchTest: (models: LLMChannel[]) => void;
     isBatchTesting: boolean;
+    onTestChannel: (channelId: number, models: LLMChannel[]) => void;
+    isChannelTesting: boolean;
 }) {
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -65,6 +70,7 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
     const channels = useMemo(() => {
         const byId = new Map<number, { id: number; name: string; models: LLMChannel[] }>();
         modelChannels.forEach((mc) => {
+            if (!mc.enabled) return; // 跳过禁用的模型
             const existing = byId.get(mc.channel_id);
             if (existing) existing.models.push(mc);
             else byId.set(mc.channel_id, { id: mc.channel_id, name: mc.channel_name, models: [mc] });
@@ -189,6 +195,31 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
                                         </span>
                                         <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 transition-transform duration-200" />
                                     </AccordionPrimitive.Trigger>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onTestChannel(channel.id, channel.models)}
+                                                    disabled={isChannelTesting || channel.models.length === 0}
+                                                    className={cn(
+                                                        'shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                                                        isChannelTesting
+                                                            ? 'text-muted-foreground/50 cursor-not-allowed'
+                                                            : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                                                    )}
+                                                >
+                                                    {isChannelTesting ? (
+                                                        <Loader2 className="size-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Zap className="size-3.5" />
+                                                    )}
+                                                    <span>{t('form.testChannel')}</span>
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{t('form.testConnection')}</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
                                 </AccordionPrimitive.Header>
                                 <AccordionContent className="px-2 pt-2">
                                     <div className="flex flex-col gap-1.5">
@@ -397,6 +428,8 @@ export function GroupEditor({
     const [failedMap, setFailedMap] = useState<Map<string, string>>(new Map());
 const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set());
     const validateMutation = useAddModelsWithValidation();
+    const channelTestMutation = useChannelTestMutation();
+    const [testingChannelId, setTestingChannelId] = useState<number | null>(null);
     const handleRemoveMember = useCallback((id: string) => {
         setRemovingIds((prev) => new Set(prev).add(id));
         setTimeout(() => {
@@ -673,6 +706,98 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
         setSelectedMembers((prev) => sortMembersByLatency(prev));
     }, [sortMembersByLatency]);
 
+    const handleTestChannel = useCallback((channelId: number, models: LLMChannel[]) => {
+        if (models.length === 0) return;
+        setTestingChannelId(channelId);
+        const testingKeys = models.map(memberKey);
+        setPendingKeys((prev) => {
+            const next = new Set(prev);
+            testingKeys.forEach((k) => next.add(k));
+            return next;
+        });
+        setFailedMap((prev) => {
+            const next = new Map(prev);
+            testingKeys.forEach((k) => next.delete(k));
+            return next;
+        });
+
+        channelTestMutation.mutate(
+            {
+                channel_id: channelId,
+                timeout_seconds: firstTokenTimeOut,
+            },
+            {
+                onSuccess: (resp) => {
+                    const results = resp.results ?? [];
+                    const failedKeys = new Set<string>();
+                    const failedMessages = new Map<string, string>();
+                    const passedByKey = new Map<string, number>();
+
+                    results.forEach((r) => {
+                        const k = `${r.channel_id}-${r.model_name}`;
+                        if (r.passed) {
+                            passedByKey.set(k, r.latency_ms);
+                        } else {
+                            failedKeys.add(k);
+                            failedMessages.set(k, r.error || t('form.testFailed'));
+                        }
+                    });
+
+                    setSelectedMembers((prev) => {
+                        const existing = new Set(prev.map((m) => m.id));
+                        const toAdd: SelectedMember[] = [];
+                        const next = prev.map((m) => {
+                            const isFailed = failedKeys.has(m.id);
+                            const lat = passedByKey.get(m.id);
+                            return {
+                                ...m,
+                                latency_ms: lat !== undefined ? lat : m.latency_ms,
+                                validation_failed: isFailed || (m.validation_failed ?? false),
+                            };
+                        });
+
+                        passedByKey.forEach((lat, key) => {
+                            if (existing.has(key)) return;
+                            const ch = models.find((c) => memberKey(c) === key);
+                            if (ch) toAdd.push({ ...ch, id: key, weight: 1, latency_ms: lat });
+                        });
+
+                        if (toAdd.length === 0) return next;
+                        return [...next, ...toAdd];
+                    });
+
+                    setFailedMap((prev) => {
+                        const next = new Map(prev);
+                        failedMessages.forEach((msg, k) => next.set(k, msg));
+                        failedKeys.forEach((k) => {
+                            if (!failedMessages.has(k)) next.set(k, t('form.testFailed'));
+                        });
+                        return next;
+                    });
+
+                    const passedCount = results.filter((r) => r.passed).length;
+                    const total = results.length;
+                    if (passedCount > 0) {
+                        toast.success(t('form.testConnectionSuccess', { passed: passedCount, total }));
+                    } else {
+                        toast.error(t('form.testConnectionAllFailed'));
+                    }
+                },
+                onError: (error) => {
+                    testingKeys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error.message)));
+                },
+                onSettled: () => {
+                    setTestingChannelId(null);
+                    setPendingKeys((prev) => {
+                        const next = new Set(prev);
+                        testingKeys.forEach((k) => next.delete(k));
+                        return next;
+                    });
+                },
+            },
+        );
+    }, [channelTestMutation, t, firstTokenTimeOut]);
+
     const handleBatchTest = useCallback((models: LLMChannel[]) => {
         if (models.length === 0) return;
         const testingKeys = models.map(memberKey);
@@ -921,6 +1046,8 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
                                 failedMap={failedMap}
                                 onBatchTest={handleBatchTest}
                                 isBatchTesting={validateMutation.isPending}
+                                onTestChannel={handleTestChannel}
+                                isChannelTesting={testingChannelId !== null}
                             />
                             <SortSection
                                 members={selectedMembers}
