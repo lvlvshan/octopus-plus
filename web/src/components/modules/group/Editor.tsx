@@ -77,6 +77,7 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
         });
 
         return Array.from(byId.values())
+            .filter((c) => c.models.length > 0) // 过滤掉所有模型都 disabled 的提供商
             .map((c) => ({ ...c, models: [...c.models].sort((a, b) => {
                 const la = (a as any).latency_ms ?? Number.MAX_VALUE;
                 const lb = (b as any).latency_ms ?? Number.MAX_VALUE;
