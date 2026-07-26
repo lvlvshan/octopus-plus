@@ -45,7 +45,7 @@ function ModelPickerSection({
     onBatchTest,
     isBatchTesting,
     onTestChannel,
-    isChannelTesting,
+    testingChannelId,
 }: {
     modelChannels: LLMChannel[];
     selectedMembers: SelectedMember[];
@@ -57,7 +57,7 @@ function ModelPickerSection({
     onBatchTest: (models: LLMChannel[]) => void;
     isBatchTesting: boolean;
     onTestChannel: (channelId: number, models: LLMChannel[]) => void;
-    isChannelTesting: boolean;
+    testingChannelId: number | null;
 }) {
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -201,15 +201,15 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
                                                 <button
                                                     type="button"
                                                     onClick={() => onTestChannel(channel.id, channel.models)}
-                                                    disabled={isChannelTesting || channel.models.length === 0}
+                                                    disabled={testingChannelId !== null || channel.models.length === 0}
                                                     className={cn(
                                                         'shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
-                                                        isChannelTesting
+                                                        testingChannelId !== null
                                                             ? 'text-muted-foreground/50 cursor-not-allowed'
                                                             : 'hover:bg-muted text-muted-foreground hover:text-foreground'
                                                     )}
                                                 >
-                                                    {isChannelTesting ? (
+                                                    {testingChannelId !== null ? (
                                                         <Loader2 className="size-3.5 animate-spin" />
                                                     ) : (
                                                         <Zap className="size-3.5" />
@@ -709,17 +709,8 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
     const handleTestChannel = useCallback((channelId: number, models: LLMChannel[]) => {
         if (models.length === 0) return;
         setTestingChannelId(channelId);
-        const testingKeys = models.map(memberKey);
-        setPendingKeys((prev) => {
-            const next = new Set(prev);
-            testingKeys.forEach((k) => next.add(k));
-            return next;
-        });
-        setFailedMap((prev) => {
-            const next = new Map(prev);
-            testingKeys.forEach((k) => next.delete(k));
-            return next;
-        });
+        // Don't touch pendingKeys here — it would show spinners in the right panel.
+        // We track testing state via testingChannelId instead.
 
         channelTestMutation.mutate(
             {
@@ -784,15 +775,10 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
                     }
                 },
                 onError: (error) => {
-                    testingKeys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error.message)));
+                    models.forEach((m) => setFailedMap((prev) => new Map(prev).set(memberKey(m), error.message)));
                 },
                 onSettled: () => {
                     setTestingChannelId(null);
-                    setPendingKeys((prev) => {
-                        const next = new Set(prev);
-                        testingKeys.forEach((k) => next.delete(k));
-                        return next;
-                    });
                 },
             },
         );
@@ -1047,7 +1033,7 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
                                 onBatchTest={handleBatchTest}
                                 isBatchTesting={validateMutation.isPending}
                                 onTestChannel={handleTestChannel}
-                                isChannelTesting={testingChannelId !== null}
+                                testingChannelId={testingChannelId}
                             />
                             <SortSection
                                 members={selectedMembers}
