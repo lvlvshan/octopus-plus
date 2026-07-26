@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { RefreshCw, Clock } from 'lucide-react';
+import { RefreshCw, Clock, HelpCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
@@ -63,6 +63,16 @@ export function SettingLLMSync() {
             <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
                 <RefreshCw className="h-5 w-5" />
                 {t('llmSync.title')}
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            {t('llmSync.hint')}
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </h2>
 
             {/* 同步间隔 */}

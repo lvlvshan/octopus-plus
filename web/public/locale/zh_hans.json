@@ -264,6 +264,7 @@
         },
         "llmSync": {
             "title": "渠道同步",
+            "hint": "自动从标记为 auto_sync 的渠道拉取最新模型列表和定价，更新后新模型会自动分组。",
             "syncInterval": {
                 "label": "自动同步间隔（小时）",
                 "placeholder": "请输入间隔（小时）"

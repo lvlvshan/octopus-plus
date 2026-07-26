@@ -264,6 +264,7 @@
         },
         "llmSync": {
             "title": "Channel Sync",
+            "hint": "Automatically fetches the latest model list and pricing from channels marked auto_sync=true. New models are auto-assigned to groups after update.",
             "syncInterval": {
                 "label": "Auto Sync Interval (hours)",
                 "placeholder": "Enter interval in hours"
