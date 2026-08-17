@@ -152,41 +152,51 @@ def main():
     
     entries = []
     model_count = 0
-    
+    seen_ids: set[str] = set()  # 全局去重，避免同一模型名多处出现生成重复 map key
+
+    def add_entry(model_id: str, cost: dict) -> None:
+        """添加一条 entry，跳过已存在的模型名（去重）"""
+        global model_count, entries
+        if model_id in seen_ids:
+            return
+        seen_ids.add(model_id)
+        entries.append(generate_entry(model_id, cost))
+        model_count += 1
+
     for provider in PROVIDERS:
         if provider not in raw_price:
             print(f"  Provider '{provider}' not found, skipping...")
             continue
-            
+
         models = raw_price[provider].get("models", {})
         provider_count = 0
-        
+
         for model_data in models.values():
             model_id = model_data.get("id", "").lower()
             cost = model_data.get("cost", {})
-            
+
             if not model_id:
                 continue
-            
+
             # 添加原始模型
-            entries.append(generate_entry(model_id, cost))
+            add_entry(model_id, cost)
             provider_count += 1
-            
+
             # 收集所有别名
             aliases = []
-            
+
             # 1. Claude 模型自动生成别名
             aliases.extend(generate_claude_aliases(model_id))
-            
+
             # 2. 静态别名映射
             if model_id in MODEL_ALIASES:
                 aliases.extend(MODEL_ALIASES[model_id])
-            
+
             # 添加别名 (去重)
             for alias in set(aliases):
-                entries.append(generate_entry(alias.lower(), cost))
+                add_entry(alias.lower(), cost)
                 provider_count += 1
-            
+
         print(f"  {provider}: {provider_count} models")
         model_count += provider_count
     
