@@ -156,7 +156,7 @@ def main():
 
     def add_entry(model_id: str, cost: dict) -> None:
         """添加一条 entry，跳过已存在的模型名（去重）"""
-        global model_count, entries
+        nonlocal model_count
         if model_id in seen_ids:
             return
         seen_ids.add(model_id)
