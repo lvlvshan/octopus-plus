@@ -893,14 +893,20 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (!isValid) return;
+
+        const remaining = selectedMembers.filter((m) => !m.validation_failed);
+        if (remaining.length === 0) return;
+
+        if (remaining.length !== selectedMembers.length) {
+            setSelectedMembers(remaining);
+        }
         onSubmit({
             name: groupName,
             match_regex: regexKey,
             mode,
             first_token_time_out: firstTokenTimeOut,
             session_keep_time: sessionKeepTime,
-            members: selectedMembers,
+            members: remaining,
         });
     };
 
