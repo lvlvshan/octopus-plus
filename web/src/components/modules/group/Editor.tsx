@@ -891,9 +891,108 @@ const [expandedChannels, setExpandedChannels] = useState<Set<number>>(new Set())
 
     const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError;
 
-    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
+        // 1. 识别未测试的模型：无 latency_ms 且无 validation_failed 标记
+        const untestedMembers = selectedMembers.filter(
+            (m) => !m.validation_failed && (m.latency_ms === undefined || m.latency_ms === null)
+        );
+
+        // 2. 如果有未测试的模型，先自动测试
+        if (untestedMembers.length > 0) {
+            const testingKeys = untestedMembers.map((m) => m.id);
+            setPendingKeys((prev) => {
+                const next = new Set(prev);
+                testingKeys.forEach((k) => next.add(k));
+                return next;
+            });
+            setFailedMap((prev) => {
+                const next = new Map(prev);
+                testingKeys.forEach((k) => next.delete(k));
+                return next;
+            });
+
+            const itemsToTest = untestedMembers.map((m, idx) => ({
+                channel_id: m.channel_id,
+                model_name: m.name,
+                priority: idx + 1,
+                weight: m.weight ?? 1,
+            }));
+
+            try {
+                const resp = await validateMutation.mutateAsync({
+                    group_id: groupId ?? 0,
+                    items_to_validate: itemsToTest,
+                    validate_only: groupId === undefined,
+                    timeout_seconds: firstTokenTimeOut,
+                });
+
+                const results = resp.results ?? [];
+                const passedByKey = new Map<string, number>();
+                const failedKeys = new Set<string>();
+                const failedMessages = new Map<string, string>();
+
+                results.forEach((r) => {
+                    const k = `${r.channel_id}-${r.model_name}`;
+                    if (r.passed) {
+                        passedByKey.set(k, r.latency_ms);
+                    } else {
+                        failedKeys.add(k);
+                        failedMessages.set(k, r.error || t('form.testFailed'));
+                    }
+                });
+
+                // 更新 selectedMembers 状态
+                setSelectedMembers((prev) => {
+                    const existing = new Set(prev.map((m) => m.id));
+                    const next = prev.map((m) => {
+                        const isFailed = failedKeys.has(m.id);
+                        const lat = passedByKey.get(m.id);
+                        return {
+                            ...m,
+                            latency_ms: lat !== undefined ? lat : m.latency_ms,
+                            validation_failed: isFailed || (m.validation_failed ?? false),
+                        };
+                    });
+
+                    passedByKey.forEach((lat, key) => {
+                        if (existing.has(key)) return;
+                        const ch = untestedMembers.find((c) => c.id === key);
+                        if (ch) next.push({ ...ch, id: key, weight: 1, latency_ms: lat, validation_failed: false });
+                    });
+
+                    return next;
+                });
+
+                setFailedMap((prev) => {
+                    const next = new Map(prev);
+                    failedMessages.forEach((msg, k) => next.set(k, msg));
+                    failedKeys.forEach((k) => {
+                        if (!failedMessages.has(k)) next.set(k, t('form.testFailed'));
+                    });
+                    return next;
+                });
+
+                const passedCount = results.filter((r) => r.passed).length;
+                const total = results.length;
+                if (passedCount > 0) {
+                    toast.success(t('form.testConnectionSuccess', { passed: passedCount, total }));
+                } else {
+                    toast.error(t('form.testConnectionAllFailed'));
+                }
+            } catch (error) {
+                testingKeys.forEach((k) => setFailedMap((prev) => new Map(prev).set(k, error instanceof Error ? error.message : String(error))));
+            } finally {
+                setPendingKeys((prev) => {
+                    const next = new Set(prev);
+                    testingKeys.forEach((k) => next.delete(k));
+                    return next;
+                });
+            }
+        }
+
+        // 3. 过滤掉验证失败的模型，只保留通过的
         const remaining = selectedMembers.filter((m) => !m.validation_failed);
         if (remaining.length === 0) return;
 
