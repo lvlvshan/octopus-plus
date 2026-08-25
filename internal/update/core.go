@@ -43,7 +43,6 @@ func UpdateCore() error {
 		log.Warnf("create temp dir failed: %v", err)
 		return err
 	}
-	defer os.RemoveAll(tmpDir) // cleanup on failure
 
 	var newExePath string
 	if strings.HasSuffix(filename, ".zip") {
@@ -85,7 +84,10 @@ func UpdateCore() error {
 	}
 
 	log.Infof("update core success, restarting with: %s", newExePath)
-	go restartExecutable(execPath, newExePath)
+	go func() {
+		defer os.RemoveAll(tmpDir)
+		restartExecutable(execPath, newExePath)
+	}()
 	return nil
 }
 
@@ -131,8 +133,7 @@ func restartExecutable(oldExecPath, newExePath string) {
 	if runtime.GOOS == "windows" {
 		// Copy new exe to target location before replacing
 		destDir := filepath.Dir(oldExecPath)
-		baseName := filepath.Base(newExePath)
-		destPath := filepath.Join(destDir, baseName)
+		destPath := filepath.Join(destDir, filepath.Base(oldExecPath))
 
 		if err := copyFile(newExePath, destPath); err != nil {
 			log.Errorf("copy new executable failed: %v", err)
@@ -152,12 +153,11 @@ func restartExecutable(oldExecPath, newExePath string) {
 
 	// Unix: replace in-place then exec
 	destDir := filepath.Dir(oldExecPath)
-	baseName := filepath.Base(newExePath)
-	destPath := filepath.Join(destDir, baseName)
+	destPath := filepath.Join(destDir, filepath.Base(oldExecPath))
 
 	if err := copyFile(newExePath, destPath); err != nil {
 		log.Errorf("copy new executable failed: %v", err)
-		return
+		os.Exit(1)
 	}
 
 	if err := syscall.Exec(destPath, os.Args, os.Environ()); err != nil {
